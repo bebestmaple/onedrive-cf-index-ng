@@ -127,7 +127,7 @@ const VideoPlayer: FC<{
           }
         } catch (err) {
           console.error('Failed to get real M3U8 URL:', err)
-          setError('无法获取视频地址: ' + err.message)
+          setError('无法获取视频地址: ' + (err instanceof Error ? err.message : String(err)))
         }
       }
       loadHls()
