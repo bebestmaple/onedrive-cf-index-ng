@@ -122,7 +122,7 @@ export const Checkbox: FC<{
       onClick={handleClick}
     >
       <input
-        className="form-check-input cursor-pointer"
+        className="cursor-pointer form-check-input"
         type="checkbox"
         value={checked ? '1' : ''}
         ref={ref}
@@ -135,11 +135,11 @@ export const Checkbox: FC<{
 
 export const Downloading: FC<{ title: string; style: string }> = ({ title, style }) => {
   return (
-    <span title={title} className={`${style} rounded`} role="status">
+    <span title={title} className={`rounded ${style}`} role="status">
       <LoadingIcon
         // Use fontawesome far theme via class `svg-inline--fa` to get style `vertical-align` only
         // for consistent icon alignment, as class `align-*` cannot satisfy it
-        className="svg-inline--fa inline-block h-4 w-4 animate-spin"
+        className="inline-block w-4 h-4 animate-spin svg-inline--fa"
       />
     </span>
   )
@@ -337,8 +337,8 @@ const FileListing: FC<{ query?: ParsedUrlQuery }> = ({ query }) => {
         {layout.name === 'Grid' ? <FolderGridLayout {...folderProps} /> : <FolderListLayout {...folderProps} />}
 
         {!onlyOnePage && (
-          <div className="rounded-b bg-white dark:bg-gray-900 dark:text-gray-100">
-            <div className="border-b border-gray-200 p-3 text-center font-mono text-sm text-gray-400 dark:border-gray-700">
+          <div className="bg-white rounded-b dark:bg-gray-900 dark:text-gray-100">
+            <div className="p-3 font-mono text-sm text-center text-gray-400 border-b border-gray-200 dark:border-gray-700">
               {`- showing ${size} page(s) ` +
                 (isLoadingMore ? `of ... file(s) -` : `of ${folderChildren.length} file(s) -`)}
             </div>
@@ -351,7 +351,7 @@ const FileListing: FC<{ query?: ParsedUrlQuery }> = ({ query }) => {
             >
               {isLoadingMore ? (
                 <>
-                  <LoadingIcon className="inline-block h-4 w-4 animate-spin" />
+                  <LoadingIcon className="inline-block w-4 h-4 animate-spin" />
                   <span>{'Loading ...'}</span>{' '}
                 </>
               ) : isReachingEnd ? (

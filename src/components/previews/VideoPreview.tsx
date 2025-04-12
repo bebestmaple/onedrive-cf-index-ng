@@ -33,6 +33,9 @@ const VideoPlayer: FC<{
   isM3u8: boolean
   mpegts: any
 }> = ({ videoName, videoUrl, width, height, thumbnail, subtitle, isFlv, isM3u8, mpegts }) => {
+  const [error, setError] = useState<string | null>(null)
+  const [directUrl, setDirectUrl] = useState<string | null>(null)
+
   useEffect(() => {
     // Really really hacky way to inject subtitles as file blobs into the video element
     axios
@@ -57,19 +60,74 @@ const VideoPlayer: FC<{
       }
       loadFlv()
     } else if (isM3u8) {
-      const loadHls = () => {
+      const loadHls = async () => {
         const video = document.getElementById('plyr') as HTMLVideoElement | null
         if (!video) return
 
-        if (Hls.isSupported()) {
-          const hls = new Hls()
-          hls.loadSource(videoUrl)
-          hls.attachMedia(video)
-          hls.on(Hls.Events.MANIFEST_PARSED, () => {
-            video.play()
+        try {
+          // 首先获取重定向后的真实URL
+          const response = await axios.get(videoUrl, {
+            maxRedirects: 0,
+            validateStatus: status => status === 302
           })
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          video.src = videoUrl
+          
+          const realUrl = response.headers.location
+          console.log('Real M3U8 URL:', realUrl)
+          setDirectUrl(realUrl)
+
+          if (Hls.isSupported()) {
+            const hls = new Hls({
+              debug: true,
+              enableWorker: true,
+              lowLatencyMode: true,
+              backBufferLength: 90,
+              xhrSetup: (xhr, url) => {
+                // 对于所有视频分片请求，使用代理
+                if (!url.endsWith('.m3u8')) {
+                  xhr.open('GET', `/api/proxy?url=${encodeURIComponent(url)}`, true)
+                }
+              }
+            })
+            
+            hls.on(Hls.Events.ERROR, (event, data) => {
+              console.error('HLS Error:', data)
+              if (data.fatal) {
+                switch (data.type) {
+                  case Hls.ErrorTypes.NETWORK_ERROR:
+                    setError('网络错误，无法加载视频流')
+                    break
+                  case Hls.ErrorTypes.MEDIA_ERROR:
+                    setError('媒体错误，视频格式可能不正确')
+                    break
+                  default:
+                    setError('播放错误: ' + data.details)
+                    break
+                }
+              }
+            })
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              console.log('HLS manifest parsed successfully')
+              video.play().catch(err => {
+                console.error('Playback failed:', err)
+                setError('播放失败: ' + err.message)
+              })
+            })
+
+            hls.loadSource(realUrl)
+            hls.attachMedia(video)
+          } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            video.src = realUrl
+            video.play().catch(err => {
+              console.error('Native HLS playback failed:', err)
+              setError('原生HLS播放失败: ' + err.message)
+            })
+          } else {
+            setError('您的浏览器不支持HLS播放')
+          }
+        } catch (err) {
+          console.error('Failed to get real M3U8 URL:', err)
+          setError('无法获取视频地址: ' + err.message)
         }
       }
       loadHls()
@@ -91,6 +149,21 @@ const VideoPlayer: FC<{
     // If the video is not in flv or m3u8 format, we can use the native plyr and add sources directly with the video URL
     plyrSource['sources'] = [{ src: videoUrl }]
   }
+
+  if (error) {
+    return (
+      <div className="p-4 text-center text-red-500">
+        <p>{error}</p>
+        <p className="mt-2 text-sm">请检查M3U8文件内容和视频流地址是否正确</p>
+        {directUrl && (
+          <p className="mt-2 text-xs break-all">
+            视频地址: {directUrl}
+          </p>
+        )}
+      </div>
+    )
+  }
+
   return <Plyr id="plyr" source={plyrSource as Plyr.SourceInfo} options={plyrOptions} />
 }
 
