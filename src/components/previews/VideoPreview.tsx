@@ -34,6 +34,9 @@ const VideoPlayer: FC<{
   mpegts: any
 }> = ({ videoName, videoUrl, width, height, thumbnail, subtitle, isFlv, isM3u8, mpegts }) => {
   const [error, setError] = useState<string | null>(null)
+  const [directUrl, setDirectUrl] = useState<string | null>(null)
+  const [isHlsInitialized, setIsHlsInitialized] = useState(false)
+  const [hlsInstance, setHlsInstance] = useState<Hls | null>(null)
 
   useEffect(() => {
     // Really really hacky way to inject subtitles as file blobs into the video element
@@ -80,14 +83,37 @@ const VideoPlayer: FC<{
               enableWorker: true,
               lowLatencyMode: true,
               backBufferLength: 90,
+              maxBufferLength: 30,
+              maxMaxBufferLength: 600,
+              maxBufferSize: 60 * 1000 * 1000,
+              maxBufferHole: 0.5,
+              startLevel: -1,
+              abrEwmaDefaultEstimate: 500000,
+              abrBandWidthFactor: 0.95,
+              abrBandWidthUpFactor: 0.7,
+              abrMaxWithRealBitrate: true,
+              testBandwidth: true,
+              progressive: true,
               xhrSetup: (xhr, url) => {
                 console.log('XHR Setup:', url)
                 xhr.onload = () => console.log('XHR Loaded:', url)
-                xhr.onerror = (e) => console.error('XHR Error:', url, e)
+                xhr.onerror = (e) => {
+                  console.error('XHR Error:', url, e)
+                  // 重试机制
+                  if (xhr.status === 0 || xhr.status === 500) {
+                    console.log('Retrying XHR request...')
+                    setTimeout(() => {
+                      xhr.open('GET', url, true)
+                      xhr.send()
+                    }, 1000)
+                  }
+                }
                 xhr.onprogress = (e) => console.log('XHR Progress:', url, e)
               }
             })
             
+            setHlsInstance(hls)
+
             // 添加所有HLS事件监听器
             const events = [
               Hls.Events.ERROR,
@@ -135,16 +161,28 @@ const VideoPlayer: FC<{
               if (data.fatal) {
                 switch (data.type) {
                   case Hls.ErrorTypes.NETWORK_ERROR:
-                    setError('网络错误，无法加载视频流')
+                    setError('网络错误，无法加载视频流，正在重试...')
+                    // 尝试恢复播放
+                    hls.startLoad()
                     break
                   case Hls.ErrorTypes.MEDIA_ERROR:
-                    setError('媒体错误，视频格式可能不正确')
+                    setError('媒体错误，视频格式可能不正确，正在尝试恢复...')
+                    hls.recoverMediaError()
                     break
                   default:
                     setError('播放错误: ' + data.details)
                     break
                 }
               }
+            })
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              console.log('HLS manifest parsed successfully')
+              setIsHlsInitialized(true)
+              video.play().catch(err => {
+                console.error('Playback failed:', err)
+                setError('播放失败: ' + err.message)
+              })
             })
 
             console.log('Loading HLS source...')
@@ -169,9 +207,27 @@ const VideoPlayer: FC<{
             video.addEventListener('error', (e) => {
               console.error('Video element error:', e)
             })
+            video.addEventListener('stalled', () => {
+              console.log('Video stalled, trying to recover...')
+              hls.startLoad()
+            })
+            video.addEventListener('waiting', () => {
+              console.log('Video waiting for data...')
+            })
+            video.addEventListener('playing', () => {
+              console.log('Video playing')
+            })
+            video.addEventListener('ended', () => {
+              console.log('Video ended')
+            })
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             console.log('Using native HLS support')
             video.src = videoUrl
+            video.play().catch(err => {
+              console.error('Native HLS playback failed:', err)
+              setError('原生HLS播放失败: ' + err.message)
+            })
+            setIsHlsInitialized(true)
           } else {
             console.error('HLS not supported')
             setError('您的浏览器不支持HLS播放')
@@ -179,11 +235,22 @@ const VideoPlayer: FC<{
         } catch (err) {
           console.error('Failed to load HLS:', err)
           setError('无法加载视频: ' + (err instanceof Error ? err.message : String(err)))
+          setIsHlsInitialized(true)
         }
       }
       loadHls()
     }
   }, [videoUrl, isFlv, isM3u8, mpegts, subtitle])
+
+  // 清理HLS实例
+  useEffect(() => {
+    return () => {
+      if (hlsInstance) {
+        console.log('Destroying HLS instance')
+        hlsInstance.destroy()
+      }
+    }
+  }, [hlsInstance])
 
   // Common plyr configs, including the video source and plyr options
   const plyrSource = {
@@ -195,6 +262,8 @@ const VideoPlayer: FC<{
   const plyrOptions: Plyr.Options = {
     ratio: `${width ?? 16}:${height ?? 9}`,
     fullscreen: { iosNative: true },
+    controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'fullscreen'],
+    blankVideo: ''
   }
   if (!isFlv && !isM3u8) {
     // If the video is not in flv or m3u8 format, we can use the native plyr and add sources directly with the video URL
@@ -206,11 +275,30 @@ const VideoPlayer: FC<{
       <div className="p-4 text-center text-red-500">
         <p>{error}</p>
         <p className="mt-2 text-sm">请检查M3U8文件内容和视频流地址是否正确</p>
-        {videoUrl && (
+        {directUrl && (
           <p className="mt-2 text-xs break-all">
-            视频地址: {videoUrl}
+            视频地址: {directUrl}
           </p>
         )}
+      </div>
+    )
+  }
+
+  // 如果是M3U8格式且HLS.js未初始化完成，显示加载中
+  if (isM3u8 && !isHlsInitialized) {
+    return <Loading loadingText="正在加载视频..." />
+  }
+
+  // 对于M3U8格式，使用自定义的video元素而不是Plyr
+  if (isM3u8) {
+    return (
+      <div className="relative w-full" style={{ paddingTop: `${(height ?? 9) / (width ?? 16) * 100}%` }}>
+        <video
+          id="plyr"
+          className="absolute top-0 left-0 w-full h-full"
+          controls
+          playsInline
+        />
       </div>
     )
   }
