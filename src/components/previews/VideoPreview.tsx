@@ -32,10 +32,11 @@ const VideoPlayer: FC<{
   isFlv: boolean
   isM3u8: boolean
   mpegts: any
-}> = ({ videoName, videoUrl, width, height, thumbnail, subtitle, isFlv, isM3u8, mpegts }) => {
+  isHlsInitialized: boolean
+  setIsHlsInitialized: (value: boolean) => void
+}> = ({ videoName, videoUrl, width, height, thumbnail, subtitle, isFlv, isM3u8, mpegts, isHlsInitialized, setIsHlsInitialized }) => {
   const [error, setError] = useState<string | null>(null)
   const [directUrl, setDirectUrl] = useState<string | null>(null)
-  const [isHlsInitialized, setIsHlsInitialized] = useState(false)
   const [hlsInstance, setHlsInstance] = useState<Hls | null>(null)
 
   useEffect(() => {
@@ -240,7 +241,7 @@ const VideoPlayer: FC<{
       }
       loadHls()
     }
-  }, [videoUrl, isFlv, isM3u8, mpegts, subtitle])
+  }, [videoUrl, isFlv, isM3u8, mpegts, subtitle, isHlsInitialized, setIsHlsInitialized])
 
   // 清理HLS实例
   useEffect(() => {
@@ -286,7 +287,17 @@ const VideoPlayer: FC<{
 
   // 如果是M3U8格式且HLS.js未初始化完成，显示加载中
   if (isM3u8 && !isHlsInitialized) {
-    return <Loading loadingText="正在加载视频..." />
+    return (
+      <div className="relative w-full" style={{ paddingTop: `${(height ?? 9) / (width ?? 16) * 100}%` }}>
+        <video
+          id="plyr"
+          className="absolute top-0 left-0 w-full h-full"
+          controls
+          playsInline
+        />
+        <Loading loadingText="正在加载视频..." />
+      </div>
+    )
   }
 
   // 对于M3U8格式，使用自定义的video元素而不是Plyr
@@ -312,6 +323,9 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
   const clipboard = useClipboard()
 
   const [menuOpen, setMenuOpen] = useState(false)
+  const [isHlsInitialized, setIsHlsInitialized] = useState(false)
+  const [hlsInstance, setHlsInstance] = useState<Hls | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   // OneDrive generates thumbnails for its video files, we pick the thumbnail with the highest resolution
   const thumbnail = `/api/thumbnail?path=${asPath}&size=large${hashedToken ? `&odpt=${hashedToken}` : ''}`
@@ -327,7 +341,7 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
   const isM3u8 = getExtension(file.name) === 'm3u8'
   const {
     loading,
-    error,
+    error: flvError,
     result: mpegts,
   } = useAsync(async () => {
     if (isFlv) {
@@ -335,12 +349,215 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
     }
   }, [isFlv])
 
+  useEffect(() => {
+    if (isM3u8) {
+      const loadHls = async () => {
+        const video = document.getElementById('plyr') as HTMLVideoElement | null
+        if (!video) {
+          console.error('Video element not found')
+          return
+        }
+
+        console.log('=== HLS Player Initialization ===')
+        console.log('Video URL:', videoUrl)
+        console.log('Browser HLS Support:', Hls.isSupported())
+        console.log('Native HLS Support:', video.canPlayType('application/vnd.apple.mpegurl'))
+        console.log('Video Element:', video)
+
+        try {
+          if (Hls.isSupported()) {
+            console.log('Creating HLS instance...')
+            const hls = new Hls({
+              debug: true,
+              enableWorker: true,
+              lowLatencyMode: true,
+              backBufferLength: 90,
+              maxBufferLength: 30,
+              maxMaxBufferLength: 600,
+              maxBufferSize: 60 * 1000 * 1000,
+              maxBufferHole: 0.5,
+              startLevel: -1,
+              abrEwmaDefaultEstimate: 500000,
+              abrBandWidthFactor: 0.95,
+              abrBandWidthUpFactor: 0.7,
+              abrMaxWithRealBitrate: true,
+              testBandwidth: true,
+              progressive: true,
+              xhrSetup: (xhr, url) => {
+                console.log('XHR Setup:', url)
+                xhr.onload = () => console.log('XHR Loaded:', url)
+                xhr.onerror = (e) => {
+                  console.error('XHR Error:', url, e)
+                  // 重试机制
+                  if (xhr.status === 0 || xhr.status === 500) {
+                    console.log('Retrying XHR request...')
+                    setTimeout(() => {
+                      xhr.open('GET', url, true)
+                      xhr.send()
+                    }, 1000)
+                  }
+                }
+                xhr.onprogress = (e) => console.log('XHR Progress:', url, e)
+              }
+            })
+            
+            setHlsInstance(hls)
+
+            // 添加所有HLS事件监听器
+            const events = [
+              Hls.Events.ERROR,
+              Hls.Events.MANIFEST_PARSED,
+              Hls.Events.MANIFEST_LOADING,
+              Hls.Events.MANIFEST_LOADED,
+              Hls.Events.LEVEL_LOADED,
+              Hls.Events.LEVEL_SWITCHED,
+              Hls.Events.FRAG_LOADED,
+              Hls.Events.FRAG_PARSED,
+              Hls.Events.FRAG_BUFFERED,
+              Hls.Events.BUFFER_CREATED,
+              Hls.Events.BUFFER_APPENDED,
+              Hls.Events.BUFFER_APPENDING,
+              Hls.Events.BUFFER_EOS,
+              Hls.Events.BUFFER_FLUSHED,
+              Hls.Events.LEVEL_UPDATED,
+              Hls.Events.LEVEL_SWITCHING,
+              Hls.Events.LEVEL_PTS_UPDATED,
+              Hls.Events.LEVEL_LOADING,
+              Hls.Events.KEY_LOADED,
+              Hls.Events.KEY_LOADING,
+              Hls.Events.SUBTITLE_TRACKS_UPDATED,
+              Hls.Events.SUBTITLE_TRACK_LOADED,
+              Hls.Events.SUBTITLE_TRACK_SWITCH,
+              Hls.Events.SUBTITLE_FRAG_PROCESSED
+            ]
+
+            events.forEach(event => {
+              hls.on(event, (eventType, data) => {
+                console.log(`[HLS Event] ${event}:`, {
+                  eventType,
+                  data,
+                  timestamp: new Date().toISOString()
+                })
+              })
+            })
+
+            hls.on(Hls.Events.ERROR, (event, data) => {
+              console.error('[HLS Error]', {
+                event,
+                data,
+                timestamp: new Date().toISOString()
+              })
+              if (data.fatal) {
+                switch (data.type) {
+                  case Hls.ErrorTypes.NETWORK_ERROR:
+                    setError('网络错误，无法加载视频流，正在重试...')
+                    // 尝试恢复播放
+                    hls.startLoad()
+                    break
+                  case Hls.ErrorTypes.MEDIA_ERROR:
+                    setError('媒体错误，视频格式可能不正确，正在尝试恢复...')
+                    hls.recoverMediaError()
+                    break
+                  default:
+                    setError('播放错误: ' + data.details)
+                    break
+                }
+              }
+            })
+
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              console.log('HLS manifest parsed successfully')
+              setIsHlsInitialized(true)
+              video.play().catch(err => {
+                console.error('Playback failed:', err)
+                setError('播放失败: ' + err.message)
+              })
+            })
+
+            console.log('Loading HLS source...')
+            hls.loadSource(videoUrl)
+            console.log('Attaching media element...')
+            hls.attachMedia(video)
+            console.log('HLS initialization completed')
+
+            // 添加视频元素事件监听
+            video.addEventListener('loadedmetadata', () => {
+              console.log('Video metadata loaded')
+            })
+            video.addEventListener('loadeddata', () => {
+              console.log('Video data loaded')
+            })
+            video.addEventListener('canplay', () => {
+              console.log('Video can play')
+            })
+            video.addEventListener('play', () => {
+              console.log('Video started playing')
+            })
+            video.addEventListener('error', (e) => {
+              console.error('Video element error:', e)
+            })
+            video.addEventListener('stalled', () => {
+              console.log('Video stalled, trying to recover...')
+              hls.startLoad()
+            })
+            video.addEventListener('waiting', () => {
+              console.log('Video waiting for data...')
+            })
+            video.addEventListener('playing', () => {
+              console.log('Video playing')
+            })
+            video.addEventListener('ended', () => {
+              console.log('Video ended')
+            })
+          } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            console.log('Using native HLS support')
+            video.src = videoUrl
+            video.play().catch(err => {
+              console.error('Native HLS playback failed:', err)
+              setError('原生HLS播放失败: ' + err.message)
+            })
+            setIsHlsInitialized(true)
+          } else {
+            console.error('HLS not supported')
+            setError('您的浏览器不支持HLS播放')
+          }
+        } catch (err) {
+          console.error('Failed to load HLS:', err)
+          setError('无法加载视频: ' + (err instanceof Error ? err.message : String(err)))
+          setIsHlsInitialized(true)
+        }
+      }
+
+      // 使用 setTimeout 确保 DOM 已经渲染
+      setTimeout(loadHls, 0)
+    }
+  }, [isM3u8, videoUrl])
+
+  // 清理HLS实例
+  useEffect(() => {
+    return () => {
+      if (hlsInstance) {
+        console.log('Destroying HLS instance')
+        hlsInstance.destroy()
+      }
+    }
+  }, [hlsInstance])
+
+  if (error) {
+    return (
+      <div className="p-4 text-center text-red-500">
+        <p>{error}</p>
+        <p className="mt-2 text-sm">请检查M3U8文件内容和视频流地址是否正确</p>
+      </div>
+    )
+  }
+
   return (
     <>
       <CustomEmbedLinkMenu path={asPath} menuOpen={menuOpen} setMenuOpen={setMenuOpen} />
       <PreviewContainer>
-        {error ? (
-          <FourOhFour errorMsg={error.message} />
+        {flvError ? (
+          <FourOhFour errorMsg={flvError.message} />
         ) : loading && isFlv ? (
           <Loading loadingText={'Loading FLV extension...'} />
         ) : (
@@ -354,6 +571,8 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
             isFlv={isFlv}
             isM3u8={isM3u8}
             mpegts={mpegts}
+            isHlsInitialized={isHlsInitialized}
+            setIsHlsInitialized={setIsHlsInitialized}
           />
         )}
       </PreviewContainer>
