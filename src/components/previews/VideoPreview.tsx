@@ -92,20 +92,12 @@ const VideoPlayer: FC<{
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
               console.log('HLS manifest parsed successfully')
-              video.play().catch(err => {
-                console.error('Playback failed:', err)
-                setError('播放失败: ' + err.message)
-              })
             })
 
             hls.loadSource(videoUrl)
             hls.attachMedia(video)
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = videoUrl
-            video.play().catch(err => {
-              console.error('Native HLS playback failed:', err)
-              setError('原生HLS播放失败: ' + err.message)
-            })
           } else {
             setError('您的浏览器不支持HLS播放')
           }
