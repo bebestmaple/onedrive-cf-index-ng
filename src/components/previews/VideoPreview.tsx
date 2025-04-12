@@ -97,16 +97,48 @@ const VideoPlayer: FC<{
               progressive: true,
               xhrSetup: (xhr, url) => {
                 console.log('XHR Setup:', url)
-                xhr.onload = () => console.log('XHR Loaded:', url)
+                // 添加CORS相关头
+                xhr.withCredentials = true
+                xhr.setRequestHeader('Access-Control-Allow-Origin', '*')
+                xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type, Range')
+                xhr.setRequestHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
+                
+                xhr.onload = () => {
+                  console.log('XHR Loaded:', url)
+                  // 检查CORS头
+                  const corsHeader = xhr.getResponseHeader('Access-Control-Allow-Origin')
+                  if (!corsHeader) {
+                    console.warn('CORS header not found in response')
+                  }
+                }
                 xhr.onerror = (e) => {
                   console.error('XHR Error:', url, e)
-                  // 重试机制
-                  if (xhr.status === 0 || xhr.status === 500) {
+                  // 检查是否是CORS错误
+                  if (xhr.status === 0 && xhr.readyState === 4) {
+                    console.error('Possible CORS error detected')
+                    setError('跨域访问被阻止，请检查服务器CORS配置')
+                    return
+                  }
+                  // 增强重试机制
+                  if (xhr.status === 0 || xhr.status === 500 || xhr.status === 404) {
                     console.log('Retrying XHR request...')
-                    setTimeout(() => {
-                      xhr.open('GET', url, true)
-                      xhr.send()
-                    }, 1000)
+                    let retryCount = 0
+                    const maxRetries = 3
+                    const retry = () => {
+                      if (retryCount < maxRetries) {
+                        retryCount++
+                        console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
+                        setTimeout(() => {
+                          xhr.open('GET', url, true)
+                          xhr.send()
+                        }, 1000 * retryCount)
+                      } else {
+                        console.error('Max retries reached')
+                        setError('无法加载视频流，请检查网络连接或视频地址是否正确')
+                      }
+                    }
+                    retry()
                   }
                 }
                 xhr.onprogress = (e) => console.log('XHR Progress:', url, e)
@@ -162,9 +194,28 @@ const VideoPlayer: FC<{
               if (data.fatal) {
                 switch (data.type) {
                   case Hls.ErrorTypes.NETWORK_ERROR:
+                    // 检查是否是CORS错误
+                    if (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR && 
+                        data.response && data.response.code === 0) {
+                      setError('跨域访问被阻止，请检查服务器CORS配置')
+                      return
+                    }
                     setError('网络错误，无法加载视频流，正在重试...')
-                    // 尝试恢复播放
-                    hls.startLoad()
+                    // 增强重试机制
+                    let retryCount = 0
+                    const maxRetries = 3
+                    const retry = () => {
+                      if (retryCount < maxRetries) {
+                        retryCount++
+                        console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
+                        setTimeout(() => {
+                          hls.startLoad()
+                        }, 1000 * retryCount)
+                      } else {
+                        setError('无法加载视频流，请检查网络连接或视频地址是否正确')
+                      }
+                    }
+                    retry()
                     break
                   case Hls.ErrorTypes.MEDIA_ERROR:
                     setError('媒体错误，视频格式可能不正确，正在尝试恢复...')
@@ -295,7 +346,12 @@ const VideoPlayer: FC<{
           controls
           playsInline
         />
-        <Loading loadingText="正在加载视频..." />
+        <div className="flex absolute inset-0 justify-center items-center bg-gray-100 dark:bg-gray-800">
+          <div className="text-center">
+            <Loading loadingText="正在加载视频..." />
+            <p className="mt-2 text-sm text-gray-500">如果加载时间过长，请检查网络连接</p>
+          </div>
+        </div>
       </div>
     )
   }
@@ -385,16 +441,48 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
               progressive: true,
               xhrSetup: (xhr, url) => {
                 console.log('XHR Setup:', url)
-                xhr.onload = () => console.log('XHR Loaded:', url)
+                // 添加CORS相关头
+                xhr.withCredentials = true
+                xhr.setRequestHeader('Access-Control-Allow-Origin', '*')
+                xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
+                xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type, Range')
+                xhr.setRequestHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
+                
+                xhr.onload = () => {
+                  console.log('XHR Loaded:', url)
+                  // 检查CORS头
+                  const corsHeader = xhr.getResponseHeader('Access-Control-Allow-Origin')
+                  if (!corsHeader) {
+                    console.warn('CORS header not found in response')
+                  }
+                }
                 xhr.onerror = (e) => {
                   console.error('XHR Error:', url, e)
-                  // 重试机制
-                  if (xhr.status === 0 || xhr.status === 500) {
+                  // 检查是否是CORS错误
+                  if (xhr.status === 0 && xhr.readyState === 4) {
+                    console.error('Possible CORS error detected')
+                    setError('跨域访问被阻止，请检查服务器CORS配置')
+                    return
+                  }
+                  // 增强重试机制
+                  if (xhr.status === 0 || xhr.status === 500 || xhr.status === 404) {
                     console.log('Retrying XHR request...')
-                    setTimeout(() => {
-                      xhr.open('GET', url, true)
-                      xhr.send()
-                    }, 1000)
+                    let retryCount = 0
+                    const maxRetries = 3
+                    const retry = () => {
+                      if (retryCount < maxRetries) {
+                        retryCount++
+                        console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
+                        setTimeout(() => {
+                          xhr.open('GET', url, true)
+                          xhr.send()
+                        }, 1000 * retryCount)
+                      } else {
+                        console.error('Max retries reached')
+                        setError('无法加载视频流，请检查网络连接或视频地址是否正确')
+                      }
+                    }
+                    retry()
                   }
                 }
                 xhr.onprogress = (e) => console.log('XHR Progress:', url, e)
@@ -450,9 +538,28 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
               if (data.fatal) {
                 switch (data.type) {
                   case Hls.ErrorTypes.NETWORK_ERROR:
+                    // 检查是否是CORS错误
+                    if (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR && 
+                        data.response && data.response.code === 0) {
+                      setError('跨域访问被阻止，请检查服务器CORS配置')
+                      return
+                    }
                     setError('网络错误，无法加载视频流，正在重试...')
-                    // 尝试恢复播放
-                    hls.startLoad()
+                    // 增强重试机制
+                    let retryCount = 0
+                    const maxRetries = 3
+                    const retry = () => {
+                      if (retryCount < maxRetries) {
+                        retryCount++
+                        console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
+                        setTimeout(() => {
+                          hls.startLoad()
+                        }, 1000 * retryCount)
+                      } else {
+                        setError('无法加载视频流，请检查网络连接或视频地址是否正确')
+                      }
+                    }
+                    retry()
                     break
                   case Hls.ErrorTypes.MEDIA_ERROR:
                     setError('媒体错误，视频格式可能不正确，正在尝试恢复...')
