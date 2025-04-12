@@ -68,10 +68,10 @@ const VideoPlayer: FC<{
           // 首先获取重定向后的真实URL
           const response = await axios.get(videoUrl, {
             maxRedirects: 0,
-            validateStatus: status => status === 302
+            validateStatus: status => status === 302 || status === 200
           })
           
-          const realUrl = response.headers.location
+          const realUrl = response.status === 302 ? response.headers.location : videoUrl
           console.log('Real M3U8 URL:', realUrl)
           setDirectUrl(realUrl)
 
