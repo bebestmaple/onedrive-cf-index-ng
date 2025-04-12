@@ -65,28 +65,12 @@ const VideoPlayer: FC<{
         if (!video) return
 
         try {
-          // 首先获取重定向后的真实URL
-          const response = await axios.get(videoUrl, {
-            maxRedirects: 0,
-            validateStatus: status => status === 302 || status === 200
-          })
-          
-          const realUrl = response.status === 302 ? response.headers.location : videoUrl
-          console.log('Real M3U8 URL:', realUrl)
-          setDirectUrl(realUrl)
-
           if (Hls.isSupported()) {
             const hls = new Hls({
               debug: true,
               enableWorker: true,
               lowLatencyMode: true,
-              backBufferLength: 90,
-              xhrSetup: (xhr, url) => {
-                // 对于所有视频分片请求，使用代理
-                if (!url.endsWith('.m3u8')) {
-                  xhr.open('GET', `/api/proxy?url=${encodeURIComponent(url)}`, true)
-                }
-              }
+              backBufferLength: 90
             })
             
             hls.on(Hls.Events.ERROR, (event, data) => {
@@ -114,10 +98,10 @@ const VideoPlayer: FC<{
               })
             })
 
-            hls.loadSource(realUrl)
+            hls.loadSource(videoUrl)
             hls.attachMedia(video)
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            video.src = realUrl
+            video.src = videoUrl
             video.play().catch(err => {
               console.error('Native HLS playback failed:', err)
               setError('原生HLS播放失败: ' + err.message)
@@ -126,8 +110,8 @@ const VideoPlayer: FC<{
             setError('您的浏览器不支持HLS播放')
           }
         } catch (err) {
-          console.error('Failed to get real M3U8 URL:', err)
-          setError('无法获取视频地址: ' + (err instanceof Error ? err.message : String(err)))
+          console.error('Failed to load HLS:', err)
+          setError('无法加载视频: ' + (err instanceof Error ? err.message : String(err)))
         }
       }
       loadHls()
