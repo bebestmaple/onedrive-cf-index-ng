@@ -34,8 +34,6 @@ const VideoPlayer: FC<{
   mpegts: any
 }> = ({ videoName, videoUrl, width, height, thumbnail, subtitle, isFlv, isM3u8, mpegts }) => {
   const [error, setError] = useState<string | null>(null)
-  const [directUrl, setDirectUrl] = useState<string | null>(null)
-  const [isHlsInitialized, setIsHlsInitialized] = useState(false)
 
   useEffect(() => {
     // Really really hacky way to inject subtitles as file blobs into the video element
@@ -63,19 +61,77 @@ const VideoPlayer: FC<{
     } else if (isM3u8) {
       const loadHls = async () => {
         const video = document.getElementById('plyr') as HTMLVideoElement | null
-        if (!video) return
+        if (!video) {
+          console.error('Video element not found')
+          return
+        }
+
+        console.log('=== HLS Player Initialization ===')
+        console.log('Video URL:', videoUrl)
+        console.log('Browser HLS Support:', Hls.isSupported())
+        console.log('Native HLS Support:', video.canPlayType('application/vnd.apple.mpegurl'))
+        console.log('Video Element:', video)
 
         try {
           if (Hls.isSupported()) {
+            console.log('Creating HLS instance...')
             const hls = new Hls({
               debug: true,
               enableWorker: true,
               lowLatencyMode: true,
-              backBufferLength: 90
+              backBufferLength: 90,
+              xhrSetup: (xhr, url) => {
+                console.log('XHR Setup:', url)
+                xhr.onload = () => console.log('XHR Loaded:', url)
+                xhr.onerror = (e) => console.error('XHR Error:', url, e)
+                xhr.onprogress = (e) => console.log('XHR Progress:', url, e)
+              }
             })
             
+            // 添加所有HLS事件监听器
+            const events = [
+              Hls.Events.ERROR,
+              Hls.Events.MANIFEST_PARSED,
+              Hls.Events.MANIFEST_LOADING,
+              Hls.Events.MANIFEST_LOADED,
+              Hls.Events.LEVEL_LOADED,
+              Hls.Events.LEVEL_SWITCHED,
+              Hls.Events.FRAG_LOADED,
+              Hls.Events.FRAG_PARSED,
+              Hls.Events.FRAG_BUFFERED,
+              Hls.Events.BUFFER_CREATED,
+              Hls.Events.BUFFER_APPENDED,
+              Hls.Events.BUFFER_APPENDING,
+              Hls.Events.BUFFER_EOS,
+              Hls.Events.BUFFER_FLUSHED,
+              Hls.Events.LEVEL_UPDATED,
+              Hls.Events.LEVEL_SWITCHING,
+              Hls.Events.LEVEL_PTS_UPDATED,
+              Hls.Events.LEVEL_LOADING,
+              Hls.Events.KEY_LOADED,
+              Hls.Events.KEY_LOADING,
+              Hls.Events.SUBTITLE_TRACKS_UPDATED,
+              Hls.Events.SUBTITLE_TRACK_LOADED,
+              Hls.Events.SUBTITLE_TRACK_SWITCH,
+              Hls.Events.SUBTITLE_FRAG_PROCESSED
+            ]
+
+            events.forEach(event => {
+              hls.on(event, (eventType, data) => {
+                console.log(`[HLS Event] ${event}:`, {
+                  eventType,
+                  data,
+                  timestamp: new Date().toISOString()
+                })
+              })
+            })
+
             hls.on(Hls.Events.ERROR, (event, data) => {
-              console.error('HLS Error:', data)
+              console.error('[HLS Error]', {
+                event,
+                data,
+                timestamp: new Date().toISOString()
+              })
               if (data.fatal) {
                 switch (data.type) {
                   case Hls.ErrorTypes.NETWORK_ERROR:
@@ -91,36 +147,33 @@ const VideoPlayer: FC<{
               }
             })
 
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-              console.log('HLS manifest parsed successfully')
-              setIsHlsInitialized(true)
-            })
+            console.log('Loading HLS source...')
+            hls.loadSource(videoUrl)
+            console.log('Attaching media element...')
+            hls.attachMedia(video)
+            console.log('HLS initialization completed')
 
-            hls.on(Hls.Events.MANIFEST_LOADING, () => {
-              console.log('HLS manifest loading...')
+            // 添加视频元素事件监听
+            video.addEventListener('loadedmetadata', () => {
+              console.log('Video metadata loaded')
             })
-
-            hls.on(Hls.Events.MANIFEST_LOADED, () => {
-              console.log('HLS manifest loaded')
+            video.addEventListener('loadeddata', () => {
+              console.log('Video data loaded')
             })
-
-            hls.on(Hls.Events.LEVEL_LOADED, () => {
-              console.log('HLS level loaded')
+            video.addEventListener('canplay', () => {
+              console.log('Video can play')
             })
-
-            try {
-              console.log('Loading HLS source:', videoUrl)
-              hls.loadSource(videoUrl)
-              hls.attachMedia(video)
-            } catch (err) {
-              console.error('Failed to load HLS source:', err)
-              setError('无法加载视频源: ' + (err instanceof Error ? err.message : String(err)))
-              setIsHlsInitialized(true) // 即使出错也设置初始化完成，避免卡在加载界面
-            }
+            video.addEventListener('play', () => {
+              console.log('Video started playing')
+            })
+            video.addEventListener('error', (e) => {
+              console.error('Video element error:', e)
+            })
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+            console.log('Using native HLS support')
             video.src = videoUrl
-            setIsHlsInitialized(true)
           } else {
+            console.error('HLS not supported')
             setError('您的浏览器不支持HLS播放')
           }
         } catch (err) {
@@ -142,8 +195,6 @@ const VideoPlayer: FC<{
   const plyrOptions: Plyr.Options = {
     ratio: `${width ?? 16}:${height ?? 9}`,
     fullscreen: { iosNative: true },
-    // controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'fullscreen'],
-    // blankVideo: ''
   }
   if (!isFlv && !isM3u8) {
     // If the video is not in flv or m3u8 format, we can use the native plyr and add sources directly with the video URL
@@ -155,18 +206,13 @@ const VideoPlayer: FC<{
       <div className="p-4 text-center text-red-500">
         <p>{error}</p>
         <p className="mt-2 text-sm">请检查M3U8文件内容和视频流地址是否正确</p>
-        {directUrl && (
+        {videoUrl && (
           <p className="mt-2 text-xs break-all">
-            视频地址: {directUrl}
+            视频地址: {videoUrl}
           </p>
         )}
       </div>
     )
-  }
-
-  // 如果是M3U8格式且HLS.js未初始化完成，显示加载中
-  if (isM3u8 && !isHlsInitialized) {
-    return <Loading loadingText="正在加载视频..." />
   }
 
   return <Plyr id="plyr" source={plyrSource as Plyr.SourceInfo} options={plyrOptions} />
