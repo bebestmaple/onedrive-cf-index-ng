@@ -8,6 +8,7 @@ import toast from 'react-hot-toast'
 import Plyr from 'plyr-react'
 import { useAsync } from 'react-async-hook'
 import { useClipboard } from 'use-clipboard-copy'
+import Hls from 'hls.js'
 
 import { getBaseUrl } from '../../utils/getBaseUrl'
 import { getExtension } from '../../utils/getFileIcon'
@@ -29,8 +30,9 @@ const VideoPlayer: FC<{
   thumbnail: string
   subtitle: string
   isFlv: boolean
+  isM3u8: boolean
   mpegts: any
-}> = ({ videoName, videoUrl, width, height, thumbnail, subtitle, isFlv, mpegts }) => {
+}> = ({ videoName, videoUrl, width, height, thumbnail, subtitle, isFlv, isM3u8, mpegts }) => {
   useEffect(() => {
     // Really really hacky way to inject subtitles as file blobs into the video element
     axios
@@ -46,14 +48,33 @@ const VideoPlayer: FC<{
     if (isFlv) {
       const loadFlv = () => {
         // Really hacky way to get the exposed video element from Plyr
-        const video = document.getElementById('plyr')
-        const flv = mpegts.createPlayer({ url: videoUrl, type: 'flv' })
-        flv.attachMediaElement(video)
-        flv.load()
+        const video = document.getElementById('plyr') as HTMLVideoElement | null
+        if (video) {
+          const flv = mpegts.createPlayer({ url: videoUrl, type: 'flv' })
+          flv.attachMediaElement(video)
+          flv.load()
+        }
       }
       loadFlv()
+    } else if (isM3u8) {
+      const loadHls = () => {
+        const video = document.getElementById('plyr') as HTMLVideoElement | null
+        if (!video) return
+
+        if (Hls.isSupported()) {
+          const hls = new Hls()
+          hls.loadSource(videoUrl)
+          hls.attachMedia(video)
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            video.play()
+          })
+        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+          video.src = videoUrl
+        }
+      }
+      loadHls()
     }
-  }, [videoUrl, isFlv, mpegts, subtitle])
+  }, [videoUrl, isFlv, isM3u8, mpegts, subtitle])
 
   // Common plyr configs, including the video source and plyr options
   const plyrSource = {
@@ -66,8 +87,8 @@ const VideoPlayer: FC<{
     ratio: `${width ?? 16}:${height ?? 9}`,
     fullscreen: { iosNative: true },
   }
-  if (!isFlv) {
-    // If the video is not in flv format, we can use the native plyr and add sources directly with the video URL
+  if (!isFlv && !isM3u8) {
+    // If the video is not in flv or m3u8 format, we can use the native plyr and add sources directly with the video URL
     plyrSource['sources'] = [{ src: videoUrl }]
   }
   return <Plyr id="plyr" source={plyrSource as Plyr.SourceInfo} options={plyrOptions} />
@@ -91,6 +112,7 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
   const videoUrl = `/api/raw?path=${asPath}${hashedToken ? `&odpt=${hashedToken}` : ''}`
 
   const isFlv = getExtension(file.name) === 'flv'
+  const isM3u8 = getExtension(file.name) === 'm3u8'
   const {
     loading,
     error,
@@ -118,13 +140,14 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
             thumbnail={thumbnail}
             subtitle={subtitle}
             isFlv={isFlv}
+            isM3u8={isM3u8}
             mpegts={mpegts}
           />
         )}
       </PreviewContainer>
 
       <DownloadBtnContainer>
-        <div className="flex flex-wrap justify-center gap-2">
+        <div className="flex flex-wrap gap-2 justify-center">
           <DownloadButton
             onClickCallback={() => window.open(videoUrl)}
             btnColor="blue"
