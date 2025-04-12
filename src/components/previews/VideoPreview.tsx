@@ -96,8 +96,27 @@ const VideoPlayer: FC<{
               setIsHlsInitialized(true)
             })
 
-            hls.loadSource(videoUrl)
-            hls.attachMedia(video)
+            hls.on(Hls.Events.MANIFEST_LOADING, () => {
+              console.log('HLS manifest loading...')
+            })
+
+            hls.on(Hls.Events.MANIFEST_LOADED, () => {
+              console.log('HLS manifest loaded')
+            })
+
+            hls.on(Hls.Events.LEVEL_LOADED, () => {
+              console.log('HLS level loaded')
+            })
+
+            try {
+              console.log('Loading HLS source:', videoUrl)
+              hls.loadSource(videoUrl)
+              hls.attachMedia(video)
+            } catch (err) {
+              console.error('Failed to load HLS source:', err)
+              setError('无法加载视频源: ' + (err instanceof Error ? err.message : String(err)))
+              setIsHlsInitialized(true) // 即使出错也设置初始化完成，避免卡在加载界面
+            }
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = videoUrl
             setIsHlsInitialized(true)
