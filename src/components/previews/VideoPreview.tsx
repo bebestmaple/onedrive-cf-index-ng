@@ -35,6 +35,7 @@ const VideoPlayer: FC<{
 }> = ({ videoName, videoUrl, width, height, thumbnail, subtitle, isFlv, isM3u8, mpegts }) => {
   const [error, setError] = useState<string | null>(null)
   const [directUrl, setDirectUrl] = useState<string | null>(null)
+  const [isHlsInitialized, setIsHlsInitialized] = useState(false)
 
   useEffect(() => {
     // Really really hacky way to inject subtitles as file blobs into the video element
@@ -92,12 +93,14 @@ const VideoPlayer: FC<{
 
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
               console.log('HLS manifest parsed successfully')
+              setIsHlsInitialized(true)
             })
 
             hls.loadSource(videoUrl)
             hls.attachMedia(video)
           } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = videoUrl
+            setIsHlsInitialized(true)
           } else {
             setError('您的浏览器不支持HLS播放')
           }
@@ -120,8 +123,8 @@ const VideoPlayer: FC<{
   const plyrOptions: Plyr.Options = {
     ratio: `${width ?? 16}:${height ?? 9}`,
     fullscreen: { iosNative: true },
-    controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'fullscreen'],
-    blankVideo: ''
+    // controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'fullscreen'],
+    // blankVideo: ''
   }
   if (!isFlv && !isM3u8) {
     // If the video is not in flv or m3u8 format, we can use the native plyr and add sources directly with the video URL
@@ -140,6 +143,11 @@ const VideoPlayer: FC<{
         )}
       </div>
     )
+  }
+
+  // 如果是M3U8格式且HLS.js未初始化完成，显示加载中
+  if (isM3u8 && !isHlsInitialized) {
+    return <Loading loadingText="正在加载视频..." />
   }
 
   return <Plyr id="plyr" source={plyrSource as Plyr.SourceInfo} options={plyrOptions} />
