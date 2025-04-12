@@ -1,58 +1,38 @@
-import { NextRequest } from 'next/server'
+import { NextApiRequest, NextApiResponse } from 'next'
 import axios from 'axios'
-import { getAccessToken } from '.'
 
-export const config = {
-  runtime: 'edge',
-}
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
 
-export default async function handler(req: NextRequest): Promise<Response> {
-  const accessToken = await getAccessToken()
-  const url = req.nextUrl.searchParams.get('url')
+  const { url } = req.query
 
-  if (!url) {
-    return new Response(JSON.stringify({ error: 'Missing URL parameter' }), {
-      status: 400,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
+  if (!url || typeof url !== 'string') {
+    return res.status(400).json({ error: 'URL parameter is required' })
   }
 
   try {
     const response = await axios.get(url, {
+      responseType: 'arraybuffer',
       headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      responseType: 'stream',
-    })
-
-    // 获取原始响应的headers
-    const headers = new Headers()
-    Object.entries(response.headers).forEach(([key, value]) => {
-      if (value) {
-        headers.set(key, value.toString())
+        'Accept': '*/*',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       }
     })
 
-    // 设置缓存控制
-    headers.set('Cache-Control', 'public, max-age=31536000')
+    // 设置响应头
+    res.setHeader('Content-Type', response.headers['content-type'] || 'application/octet-stream')
+    res.setHeader('Content-Length', response.headers['content-length'])
+    res.setHeader('Cache-Control', 'public, max-age=31536000')
+    res.setHeader('Access-Control-Allow-Origin', '*')
+    res.setHeader('Access-Control-Allow-Methods', 'GET')
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
-    // 创建可读流
-    const stream = response.data
-
-    // 返回流式响应
-    return new Response(stream, {
-      status: 200,
-      headers,
-    })
-  } catch (error: any) {
+    // 发送响应数据
+    res.status(200).send(response.data)
+  } catch (error) {
     console.error('Proxy error:', error)
-    return new Response(JSON.stringify({ error: error?.message || 'Internal server error' }), {
-      status: error?.response?.status || 500,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    })
+    res.status(500).json({ error: 'Failed to fetch resource' })
   }
 } 

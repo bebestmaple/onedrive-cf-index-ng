@@ -97,28 +97,39 @@ const VideoPlayer: FC<{
               progressive: true,
               xhrSetup: (xhr, url) => {
                 console.log('XHR Setup:', url)
-                // 添加CORS相关头
-                xhr.withCredentials = true
+                // 修改CORS相关配置
+                xhr.withCredentials = false // 改为false，避免预检请求
                 xhr.setRequestHeader('Access-Control-Allow-Origin', '*')
-                xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-                xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type, Range')
-                xhr.setRequestHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
+                xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET')
+                xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type')
                 
                 xhr.onload = () => {
                   console.log('XHR Loaded:', url)
-                  // 检查CORS头
                   const corsHeader = xhr.getResponseHeader('Access-Control-Allow-Origin')
                   if (!corsHeader) {
                     console.warn('CORS header not found in response')
+                    // 如果服务器没有CORS头，尝试使用代理
+                    if (url.includes('surrit.com')) {
+                      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+                      console.log('Using proxy URL:', proxyUrl)
+                      xhr.open('GET', proxyUrl, true)
+                      xhr.send()
+                    }
                   }
                 }
                 xhr.onerror = (e) => {
                   console.error('XHR Error:', url, e)
-                  // 检查是否是CORS错误
                   if (xhr.status === 0 && xhr.readyState === 4) {
                     console.error('Possible CORS error detected')
-                    setError('跨域访问被阻止，请检查服务器CORS配置')
-                    return
+                    // 尝试使用代理
+                    if (url.includes('surrit.com')) {
+                      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+                      console.log('Retrying with proxy URL:', proxyUrl)
+                      xhr.open('GET', proxyUrl, true)
+                      xhr.send()
+                      return
+                    }
+                    setError('跨域访问被阻止，正在尝试使用代理...')
                   }
                   // 增强重试机制
                   if (xhr.status === 0 || xhr.status === 500 || xhr.status === 404) {
@@ -130,7 +141,12 @@ const VideoPlayer: FC<{
                         retryCount++
                         console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
                         setTimeout(() => {
-                          xhr.open('GET', url, true)
+                          if (url.includes('surrit.com')) {
+                            const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+                            xhr.open('GET', proxyUrl, true)
+                          } else {
+                            xhr.open('GET', url, true)
+                          }
                           xhr.send()
                         }, 1000 * retryCount)
                       } else {
@@ -231,10 +247,18 @@ const VideoPlayer: FC<{
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
               console.log('HLS manifest parsed successfully')
               setIsHlsInitialized(true)
-              video.play().catch(err => {
-                console.error('Playback failed:', err)
-                setError('播放失败: ' + err.message)
-              })
+              // 延迟播放，确保视频元素已准备好
+              setTimeout(() => {
+                video.play().catch(err => {
+                  console.error('Playback failed:', err)
+                  if (err.name === 'AbortError') {
+                    console.log('Playback aborted, retrying...')
+                    setTimeout(() => video.play(), 1000)
+                  } else {
+                    setError('播放失败: ' + err.message)
+                  }
+                })
+              }, 500)
             })
 
             console.log('Loading HLS source...')
@@ -441,28 +465,39 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
               progressive: true,
               xhrSetup: (xhr, url) => {
                 console.log('XHR Setup:', url)
-                // 添加CORS相关头
-                xhr.withCredentials = true
+                // 修改CORS相关配置
+                xhr.withCredentials = false // 改为false，避免预检请求
                 xhr.setRequestHeader('Access-Control-Allow-Origin', '*')
-                xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET, OPTIONS')
-                xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type, Range')
-                xhr.setRequestHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
+                xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET')
+                xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type')
                 
                 xhr.onload = () => {
                   console.log('XHR Loaded:', url)
-                  // 检查CORS头
                   const corsHeader = xhr.getResponseHeader('Access-Control-Allow-Origin')
                   if (!corsHeader) {
                     console.warn('CORS header not found in response')
+                    // 如果服务器没有CORS头，尝试使用代理
+                    if (url.includes('surrit.com')) {
+                      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+                      console.log('Using proxy URL:', proxyUrl)
+                      xhr.open('GET', proxyUrl, true)
+                      xhr.send()
+                    }
                   }
                 }
                 xhr.onerror = (e) => {
                   console.error('XHR Error:', url, e)
-                  // 检查是否是CORS错误
                   if (xhr.status === 0 && xhr.readyState === 4) {
                     console.error('Possible CORS error detected')
-                    setError('跨域访问被阻止，请检查服务器CORS配置')
-                    return
+                    // 尝试使用代理
+                    if (url.includes('surrit.com')) {
+                      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+                      console.log('Retrying with proxy URL:', proxyUrl)
+                      xhr.open('GET', proxyUrl, true)
+                      xhr.send()
+                      return
+                    }
+                    setError('跨域访问被阻止，正在尝试使用代理...')
                   }
                   // 增强重试机制
                   if (xhr.status === 0 || xhr.status === 500 || xhr.status === 404) {
@@ -474,7 +509,12 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
                         retryCount++
                         console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
                         setTimeout(() => {
-                          xhr.open('GET', url, true)
+                          if (url.includes('surrit.com')) {
+                            const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+                            xhr.open('GET', proxyUrl, true)
+                          } else {
+                            xhr.open('GET', url, true)
+                          }
                           xhr.send()
                         }, 1000 * retryCount)
                       } else {
@@ -575,10 +615,18 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
               console.log('HLS manifest parsed successfully')
               setIsHlsInitialized(true)
-              video.play().catch(err => {
-                console.error('Playback failed:', err)
-                setError('播放失败: ' + err.message)
-              })
+              // 延迟播放，确保视频元素已准备好
+              setTimeout(() => {
+                video.play().catch(err => {
+                  console.error('Playback failed:', err)
+                  if (err.name === 'AbortError') {
+                    console.log('Playback aborted, retrying...')
+                    setTimeout(() => video.play(), 1000)
+                  } else {
+                    setError('播放失败: ' + err.message)
+                  }
+                })
+              }, 500)
             })
 
             console.log('Loading HLS source...')
