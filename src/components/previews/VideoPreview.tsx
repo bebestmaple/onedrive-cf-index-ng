@@ -22,6 +22,266 @@ import CustomEmbedLinkMenu from '../CustomEmbedLinkMenu'
 
 import 'plyr-react/plyr.css'
 
+// 添加HLS事件监听器的公共方法
+const setupHlsEventListeners = (hls: Hls, setError: (error: string) => void) => {
+  const events = [
+    Hls.Events.ERROR,
+    Hls.Events.MANIFEST_PARSED,
+    Hls.Events.MANIFEST_LOADING,
+    Hls.Events.MANIFEST_LOADED,
+    Hls.Events.LEVEL_LOADED,
+    Hls.Events.LEVEL_SWITCHED,
+    Hls.Events.FRAG_LOADED,
+    Hls.Events.FRAG_PARSED,
+    Hls.Events.FRAG_BUFFERED,
+    Hls.Events.BUFFER_CREATED,
+    Hls.Events.BUFFER_APPENDED,
+    Hls.Events.BUFFER_APPENDING,
+    Hls.Events.BUFFER_EOS,
+    Hls.Events.BUFFER_FLUSHED,
+    Hls.Events.LEVEL_UPDATED,
+    Hls.Events.LEVEL_SWITCHING,
+    Hls.Events.LEVEL_PTS_UPDATED,
+    Hls.Events.LEVEL_LOADING,
+    Hls.Events.KEY_LOADED,
+    Hls.Events.KEY_LOADING,
+    Hls.Events.SUBTITLE_TRACKS_UPDATED,
+    Hls.Events.SUBTITLE_TRACK_LOADED,
+    Hls.Events.SUBTITLE_TRACK_SWITCH,
+    Hls.Events.SUBTITLE_FRAG_PROCESSED
+  ]
+
+  events.forEach(event => {
+    hls.on(event, (eventType, data) => {
+      console.log(`[HLS Event] ${event}:`, {
+        eventType,
+        data,
+        timestamp: new Date().toISOString()
+      })
+    })
+  })
+
+  hls.on(Hls.Events.ERROR, (event, data) => {
+    console.error('[HLS Error]', {
+      event,
+      data,
+      timestamp: new Date().toISOString()
+    })
+    if (data.fatal) {
+      switch (data.type) {
+        case Hls.ErrorTypes.NETWORK_ERROR:
+          if (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR && 
+              data.response && data.response.code === 0) {
+            setError('跨域访问被阻止，请检查服务器CORS配置')
+            return
+          }
+          setError('网络错误，无法加载视频流，正在重试...')
+          let retryCount = 0
+          const maxRetries = 3
+          const retry = () => {
+            if (retryCount < maxRetries) {
+              retryCount++
+              console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
+              setTimeout(() => {
+                hls.startLoad()
+              }, 1000 * retryCount)
+            } else {
+              setError('无法加载视频流，请检查网络连接或视频地址是否正确')
+            }
+          }
+          retry()
+          break
+        case Hls.ErrorTypes.MEDIA_ERROR:
+          setError('媒体错误，视频格式可能不正确，正在尝试恢复...')
+          hls.recoverMediaError()
+          break
+        default:
+          setError('播放错误: ' + data.details)
+          break
+      }
+    }
+  })
+}
+
+// 添加视频元素事件监听器的公共方法
+const setupVideoEventListeners = (video: HTMLVideoElement, hls: Hls) => {
+  video.addEventListener('loadedmetadata', () => {
+    console.log('Video metadata loaded')
+  })
+  video.addEventListener('loadeddata', () => {
+    console.log('Video data loaded')
+  })
+  video.addEventListener('canplay', () => {
+    console.log('Video can play')
+  })
+  video.addEventListener('play', () => {
+    console.log('Video started playing')
+  })
+  video.addEventListener('error', (e) => {
+    console.error('Video element error:', e)
+  })
+  video.addEventListener('stalled', () => {
+    console.log('Video stalled, trying to recover...')
+    hls.startLoad()
+  })
+  video.addEventListener('waiting', () => {
+    console.log('Video waiting for data...')
+  })
+  video.addEventListener('playing', () => {
+    console.log('Video playing')
+  })
+  video.addEventListener('ended', () => {
+    console.log('Video ended')
+  })
+}
+
+// 创建HLS实例的公共方法
+const createHlsInstance = (setError: (error: string) => void) => {
+  return new Hls({
+    debug: true,
+    enableWorker: true,
+    lowLatencyMode: true,
+    backBufferLength: 90,
+    maxBufferLength: 30,
+    maxMaxBufferLength: 600,
+    maxBufferSize: 60 * 1000 * 1000,
+    maxBufferHole: 0.5,
+    startLevel: -1,
+    abrEwmaDefaultEstimate: 500000,
+    abrBandWidthFactor: 0.95,
+    abrBandWidthUpFactor: 0.7,
+    abrMaxWithRealBitrate: true,
+    testBandwidth: true,
+    progressive: true,
+    xhrSetup: (xhr, url) => {
+      console.log('XHR Setup:', url)
+      
+      // 检查是否是surrit.com的请求
+      if (url.includes('surrit.com')) {
+        // 使用代理API处理请求
+        const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+        console.log('Using proxy URL:', proxyUrl)
+        xhr.open('GET', proxyUrl, true)
+        return
+      }
+
+      // 对于其他请求，添加CORS头
+      xhr.withCredentials = false
+      xhr.setRequestHeader('Access-Control-Allow-Origin', '*')
+      xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET')
+      xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type, Range')
+      xhr.setRequestHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
+      
+      xhr.onload = () => {
+        console.log('XHR Loaded:', url)
+        const corsHeader = xhr.getResponseHeader('Access-Control-Allow-Origin')
+        if (!corsHeader) {
+          console.warn('CORS header not found in response')
+        }
+      }
+      xhr.onerror = (e) => {
+        console.error('XHR Error:', url, e)
+        if (xhr.status === 0 && xhr.readyState === 4) {
+          console.error('Possible CORS error detected')
+          // 如果是CORS错误，尝试使用代理
+          const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+          console.log('Retrying with proxy URL:', proxyUrl)
+          xhr.open('GET', proxyUrl, true)
+          xhr.send()
+          return
+        }
+        // 增强重试机制
+        if (xhr.status === 0 || xhr.status === 500 || xhr.status === 404) {
+          console.log('Retrying XHR request...')
+          let retryCount = 0
+          const maxRetries = 3
+          const retry = () => {
+            if (retryCount < maxRetries) {
+              retryCount++
+              console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
+              setTimeout(() => {
+                const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+                xhr.open('GET', proxyUrl, true)
+                xhr.send()
+              }, 1000 * retryCount)
+            } else {
+              console.error('Max retries reached')
+              setError('无法加载视频流，请检查网络连接或视频地址是否正确')
+            }
+          }
+          retry()
+        }
+      }
+      xhr.onprogress = (e) => console.log('XHR Progress:', url, e)
+    }
+  })
+}
+
+// 初始化HLS播放器的公共方法
+const initializeHlsPlayer = async (
+  video: HTMLVideoElement,
+  videoUrl: string,
+  setError: (error: string) => void,
+  setIsHlsInitialized: (value: boolean) => void
+) => {
+  console.log('=== HLS Player Initialization ===')
+  console.log('Video URL:', videoUrl)
+  console.log('Browser HLS Support:', Hls.isSupported())
+  console.log('Native HLS Support:', video.canPlayType('application/vnd.apple.mpegurl'))
+  console.log('Video Element:', video)
+
+  try {
+    if (Hls.isSupported()) {
+      console.log('Creating HLS instance...')
+      const hls = createHlsInstance(setError)
+      
+      setupHlsEventListeners(hls, setError)
+      setupVideoEventListeners(video, hls)
+
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        console.log('HLS manifest parsed successfully')
+        setIsHlsInitialized(true)
+        // 延迟播放，确保视频元素已准备好
+        setTimeout(() => {
+          video.play().catch(err => {
+            console.error('Playback failed:', err)
+            if (err.name === 'AbortError') {
+              console.log('Playback aborted, retrying...')
+              setTimeout(() => video.play(), 1000)
+            } else {
+              setError('播放失败: ' + err.message)
+            }
+          })
+        }, 500)
+      })
+
+      console.log('Loading HLS source...')
+      hls.loadSource(videoUrl)
+      console.log('Attaching media element...')
+      hls.attachMedia(video)
+      console.log('HLS initialization completed')
+
+      return hls
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      console.log('Using native HLS support')
+      video.src = videoUrl
+      video.play().catch(err => {
+        console.error('Native HLS playback failed:', err)
+        setError('原生HLS播放失败: ' + err.message)
+      })
+      setIsHlsInitialized(true)
+    } else {
+      console.error('HLS not supported')
+      setError('您的浏览器不支持HLS播放')
+    }
+  } catch (err) {
+    console.error('Failed to load HLS:', err)
+    setError('无法加载视频: ' + (err instanceof Error ? err.message : String(err)))
+    setIsHlsInitialized(true)
+  }
+  return null
+}
+
 const VideoPlayer: FC<{
   videoName: string
   videoUrl: string
@@ -36,7 +296,6 @@ const VideoPlayer: FC<{
   setIsHlsInitialized: (value: boolean) => void
 }> = ({ videoName, videoUrl, width, height, thumbnail, subtitle, isFlv, isM3u8, mpegts, isHlsInitialized, setIsHlsInitialized }) => {
   const [error, setError] = useState<string | null>(null)
-  const [directUrl, setDirectUrl] = useState<string | null>(null)
   const [hlsInstance, setHlsInstance] = useState<Hls | null>(null)
 
   useEffect(() => {
@@ -70,249 +329,8 @@ const VideoPlayer: FC<{
           return
         }
 
-        console.log('=== HLS Player Initialization ===')
-        console.log('Video URL:', videoUrl)
-        console.log('Browser HLS Support:', Hls.isSupported())
-        console.log('Native HLS Support:', video.canPlayType('application/vnd.apple.mpegurl'))
-        console.log('Video Element:', video)
-
-        try {
-          if (Hls.isSupported()) {
-            console.log('Creating HLS instance...')
-            const hls = new Hls({
-              debug: true,
-              enableWorker: true,
-              lowLatencyMode: true,
-              backBufferLength: 90,
-              maxBufferLength: 30,
-              maxMaxBufferLength: 600,
-              maxBufferSize: 60 * 1000 * 1000,
-              maxBufferHole: 0.5,
-              startLevel: -1,
-              abrEwmaDefaultEstimate: 500000,
-              abrBandWidthFactor: 0.95,
-              abrBandWidthUpFactor: 0.7,
-              abrMaxWithRealBitrate: true,
-              testBandwidth: true,
-              progressive: true,
-              xhrSetup: (xhr, url) => {
-                console.log('XHR Setup:', url)
-                // 修改CORS相关配置
-                xhr.withCredentials = false // 改为false，避免预检请求
-                xhr.setRequestHeader('Access-Control-Allow-Origin', '*')
-                xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET')
-                xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type')
-                
-                xhr.onload = () => {
-                  console.log('XHR Loaded:', url)
-                  const corsHeader = xhr.getResponseHeader('Access-Control-Allow-Origin')
-                  if (!corsHeader) {
-                    console.warn('CORS header not found in response')
-                    // 如果服务器没有CORS头，尝试使用代理
-                    if (url.includes('surrit.com')) {
-                      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
-                      console.log('Using proxy URL:', proxyUrl)
-                      xhr.open('GET', proxyUrl, true)
-                      xhr.send()
-                    }
-                  }
-                }
-                xhr.onerror = (e) => {
-                  console.error('XHR Error:', url, e)
-                  if (xhr.status === 0 && xhr.readyState === 4) {
-                    console.error('Possible CORS error detected')
-                    // 尝试使用代理
-                    if (url.includes('surrit.com')) {
-                      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
-                      console.log('Retrying with proxy URL:', proxyUrl)
-                      xhr.open('GET', proxyUrl, true)
-                      xhr.send()
-                      return
-                    }
-                    setError('跨域访问被阻止，正在尝试使用代理...')
-                  }
-                  // 增强重试机制
-                  if (xhr.status === 0 || xhr.status === 500 || xhr.status === 404) {
-                    console.log('Retrying XHR request...')
-                    let retryCount = 0
-                    const maxRetries = 3
-                    const retry = () => {
-                      if (retryCount < maxRetries) {
-                        retryCount++
-                        console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
-                        setTimeout(() => {
-                          if (url.includes('surrit.com')) {
-                            const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
-                            xhr.open('GET', proxyUrl, true)
-                          } else {
-                            xhr.open('GET', url, true)
-                          }
-                          xhr.send()
-                        }, 1000 * retryCount)
-                      } else {
-                        console.error('Max retries reached')
-                        setError('无法加载视频流，请检查网络连接或视频地址是否正确')
-                      }
-                    }
-                    retry()
-                  }
-                }
-                xhr.onprogress = (e) => console.log('XHR Progress:', url, e)
-              }
-            })
-            
-            setHlsInstance(hls)
-
-            // 添加所有HLS事件监听器
-            const events = [
-              Hls.Events.ERROR,
-              Hls.Events.MANIFEST_PARSED,
-              Hls.Events.MANIFEST_LOADING,
-              Hls.Events.MANIFEST_LOADED,
-              Hls.Events.LEVEL_LOADED,
-              Hls.Events.LEVEL_SWITCHED,
-              Hls.Events.FRAG_LOADED,
-              Hls.Events.FRAG_PARSED,
-              Hls.Events.FRAG_BUFFERED,
-              Hls.Events.BUFFER_CREATED,
-              Hls.Events.BUFFER_APPENDED,
-              Hls.Events.BUFFER_APPENDING,
-              Hls.Events.BUFFER_EOS,
-              Hls.Events.BUFFER_FLUSHED,
-              Hls.Events.LEVEL_UPDATED,
-              Hls.Events.LEVEL_SWITCHING,
-              Hls.Events.LEVEL_PTS_UPDATED,
-              Hls.Events.LEVEL_LOADING,
-              Hls.Events.KEY_LOADED,
-              Hls.Events.KEY_LOADING,
-              Hls.Events.SUBTITLE_TRACKS_UPDATED,
-              Hls.Events.SUBTITLE_TRACK_LOADED,
-              Hls.Events.SUBTITLE_TRACK_SWITCH,
-              Hls.Events.SUBTITLE_FRAG_PROCESSED
-            ]
-
-            events.forEach(event => {
-              hls.on(event, (eventType, data) => {
-                console.log(`[HLS Event] ${event}:`, {
-                  eventType,
-                  data,
-                  timestamp: new Date().toISOString()
-                })
-              })
-            })
-
-            hls.on(Hls.Events.ERROR, (event, data) => {
-              console.error('[HLS Error]', {
-                event,
-                data,
-                timestamp: new Date().toISOString()
-              })
-              if (data.fatal) {
-                switch (data.type) {
-                  case Hls.ErrorTypes.NETWORK_ERROR:
-                    // 检查是否是CORS错误
-                    if (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR && 
-                        data.response && data.response.code === 0) {
-                      setError('跨域访问被阻止，请检查服务器CORS配置')
-                      return
-                    }
-                    setError('网络错误，无法加载视频流，正在重试...')
-                    // 增强重试机制
-                    let retryCount = 0
-                    const maxRetries = 3
-                    const retry = () => {
-                      if (retryCount < maxRetries) {
-                        retryCount++
-                        console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
-                        setTimeout(() => {
-                          hls.startLoad()
-                        }, 1000 * retryCount)
-                      } else {
-                        setError('无法加载视频流，请检查网络连接或视频地址是否正确')
-                      }
-                    }
-                    retry()
-                    break
-                  case Hls.ErrorTypes.MEDIA_ERROR:
-                    setError('媒体错误，视频格式可能不正确，正在尝试恢复...')
-                    hls.recoverMediaError()
-                    break
-                  default:
-                    setError('播放错误: ' + data.details)
-                    break
-                }
-              }
-            })
-
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-              console.log('HLS manifest parsed successfully')
-              setIsHlsInitialized(true)
-              // 延迟播放，确保视频元素已准备好
-              setTimeout(() => {
-                video.play().catch(err => {
-                  console.error('Playback failed:', err)
-                  if (err.name === 'AbortError') {
-                    console.log('Playback aborted, retrying...')
-                    setTimeout(() => video.play(), 1000)
-                  } else {
-                    setError('播放失败: ' + err.message)
-                  }
-                })
-              }, 500)
-            })
-
-            console.log('Loading HLS source...')
-            hls.loadSource(videoUrl)
-            console.log('Attaching media element...')
-            hls.attachMedia(video)
-            console.log('HLS initialization completed')
-
-            // 添加视频元素事件监听
-            video.addEventListener('loadedmetadata', () => {
-              console.log('Video metadata loaded')
-            })
-            video.addEventListener('loadeddata', () => {
-              console.log('Video data loaded')
-            })
-            video.addEventListener('canplay', () => {
-              console.log('Video can play')
-            })
-            video.addEventListener('play', () => {
-              console.log('Video started playing')
-            })
-            video.addEventListener('error', (e) => {
-              console.error('Video element error:', e)
-            })
-            video.addEventListener('stalled', () => {
-              console.log('Video stalled, trying to recover...')
-              hls.startLoad()
-            })
-            video.addEventListener('waiting', () => {
-              console.log('Video waiting for data...')
-            })
-            video.addEventListener('playing', () => {
-              console.log('Video playing')
-            })
-            video.addEventListener('ended', () => {
-              console.log('Video ended')
-            })
-          } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            console.log('Using native HLS support')
-            video.src = videoUrl
-            video.play().catch(err => {
-              console.error('Native HLS playback failed:', err)
-              setError('原生HLS播放失败: ' + err.message)
-            })
-            setIsHlsInitialized(true)
-          } else {
-            console.error('HLS not supported')
-            setError('您的浏览器不支持HLS播放')
-          }
-        } catch (err) {
-          console.error('Failed to load HLS:', err)
-          setError('无法加载视频: ' + (err instanceof Error ? err.message : String(err)))
-          setIsHlsInitialized(true)
-        }
+        const hls = await initializeHlsPlayer(video, videoUrl, setError, setIsHlsInitialized)
+        setHlsInstance(hls)
       }
       loadHls()
     }
@@ -351,9 +369,9 @@ const VideoPlayer: FC<{
       <div className="p-4 text-center text-red-500">
         <p>{error}</p>
         <p className="mt-2 text-sm">请检查M3U8文件内容和视频流地址是否正确</p>
-        {directUrl && (
+        {videoUrl && (
           <p className="mt-2 text-xs break-all">
-            视频地址: {directUrl}
+            视频地址: {videoUrl}
           </p>
         )}
       </div>
@@ -438,249 +456,8 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
           return
         }
 
-        console.log('=== HLS Player Initialization ===')
-        console.log('Video URL:', videoUrl)
-        console.log('Browser HLS Support:', Hls.isSupported())
-        console.log('Native HLS Support:', video.canPlayType('application/vnd.apple.mpegurl'))
-        console.log('Video Element:', video)
-
-        try {
-          if (Hls.isSupported()) {
-            console.log('Creating HLS instance...')
-            const hls = new Hls({
-              debug: true,
-              enableWorker: true,
-              lowLatencyMode: true,
-              backBufferLength: 90,
-              maxBufferLength: 30,
-              maxMaxBufferLength: 600,
-              maxBufferSize: 60 * 1000 * 1000,
-              maxBufferHole: 0.5,
-              startLevel: -1,
-              abrEwmaDefaultEstimate: 500000,
-              abrBandWidthFactor: 0.95,
-              abrBandWidthUpFactor: 0.7,
-              abrMaxWithRealBitrate: true,
-              testBandwidth: true,
-              progressive: true,
-              xhrSetup: (xhr, url) => {
-                console.log('XHR Setup:', url)
-                // 修改CORS相关配置
-                xhr.withCredentials = false // 改为false，避免预检请求
-                xhr.setRequestHeader('Access-Control-Allow-Origin', '*')
-                xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET')
-                xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type')
-                
-                xhr.onload = () => {
-                  console.log('XHR Loaded:', url)
-                  const corsHeader = xhr.getResponseHeader('Access-Control-Allow-Origin')
-                  if (!corsHeader) {
-                    console.warn('CORS header not found in response')
-                    // 如果服务器没有CORS头，尝试使用代理
-                    if (url.includes('surrit.com')) {
-                      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
-                      console.log('Using proxy URL:', proxyUrl)
-                      xhr.open('GET', proxyUrl, true)
-                      xhr.send()
-                    }
-                  }
-                }
-                xhr.onerror = (e) => {
-                  console.error('XHR Error:', url, e)
-                  if (xhr.status === 0 && xhr.readyState === 4) {
-                    console.error('Possible CORS error detected')
-                    // 尝试使用代理
-                    if (url.includes('surrit.com')) {
-                      const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
-                      console.log('Retrying with proxy URL:', proxyUrl)
-                      xhr.open('GET', proxyUrl, true)
-                      xhr.send()
-                      return
-                    }
-                    setError('跨域访问被阻止，正在尝试使用代理...')
-                  }
-                  // 增强重试机制
-                  if (xhr.status === 0 || xhr.status === 500 || xhr.status === 404) {
-                    console.log('Retrying XHR request...')
-                    let retryCount = 0
-                    const maxRetries = 3
-                    const retry = () => {
-                      if (retryCount < maxRetries) {
-                        retryCount++
-                        console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
-                        setTimeout(() => {
-                          if (url.includes('surrit.com')) {
-                            const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
-                            xhr.open('GET', proxyUrl, true)
-                          } else {
-                            xhr.open('GET', url, true)
-                          }
-                          xhr.send()
-                        }, 1000 * retryCount)
-                      } else {
-                        console.error('Max retries reached')
-                        setError('无法加载视频流，请检查网络连接或视频地址是否正确')
-                      }
-                    }
-                    retry()
-                  }
-                }
-                xhr.onprogress = (e) => console.log('XHR Progress:', url, e)
-              }
-            })
-            
-            setHlsInstance(hls)
-
-            // 添加所有HLS事件监听器
-            const events = [
-              Hls.Events.ERROR,
-              Hls.Events.MANIFEST_PARSED,
-              Hls.Events.MANIFEST_LOADING,
-              Hls.Events.MANIFEST_LOADED,
-              Hls.Events.LEVEL_LOADED,
-              Hls.Events.LEVEL_SWITCHED,
-              Hls.Events.FRAG_LOADED,
-              Hls.Events.FRAG_PARSED,
-              Hls.Events.FRAG_BUFFERED,
-              Hls.Events.BUFFER_CREATED,
-              Hls.Events.BUFFER_APPENDED,
-              Hls.Events.BUFFER_APPENDING,
-              Hls.Events.BUFFER_EOS,
-              Hls.Events.BUFFER_FLUSHED,
-              Hls.Events.LEVEL_UPDATED,
-              Hls.Events.LEVEL_SWITCHING,
-              Hls.Events.LEVEL_PTS_UPDATED,
-              Hls.Events.LEVEL_LOADING,
-              Hls.Events.KEY_LOADED,
-              Hls.Events.KEY_LOADING,
-              Hls.Events.SUBTITLE_TRACKS_UPDATED,
-              Hls.Events.SUBTITLE_TRACK_LOADED,
-              Hls.Events.SUBTITLE_TRACK_SWITCH,
-              Hls.Events.SUBTITLE_FRAG_PROCESSED
-            ]
-
-            events.forEach(event => {
-              hls.on(event, (eventType, data) => {
-                console.log(`[HLS Event] ${event}:`, {
-                  eventType,
-                  data,
-                  timestamp: new Date().toISOString()
-                })
-              })
-            })
-
-            hls.on(Hls.Events.ERROR, (event, data) => {
-              console.error('[HLS Error]', {
-                event,
-                data,
-                timestamp: new Date().toISOString()
-              })
-              if (data.fatal) {
-                switch (data.type) {
-                  case Hls.ErrorTypes.NETWORK_ERROR:
-                    // 检查是否是CORS错误
-                    if (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR && 
-                        data.response && data.response.code === 0) {
-                      setError('跨域访问被阻止，请检查服务器CORS配置')
-                      return
-                    }
-                    setError('网络错误，无法加载视频流，正在重试...')
-                    // 增强重试机制
-                    let retryCount = 0
-                    const maxRetries = 3
-                    const retry = () => {
-                      if (retryCount < maxRetries) {
-                        retryCount++
-                        console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
-                        setTimeout(() => {
-                          hls.startLoad()
-                        }, 1000 * retryCount)
-                      } else {
-                        setError('无法加载视频流，请检查网络连接或视频地址是否正确')
-                      }
-                    }
-                    retry()
-                    break
-                  case Hls.ErrorTypes.MEDIA_ERROR:
-                    setError('媒体错误，视频格式可能不正确，正在尝试恢复...')
-                    hls.recoverMediaError()
-                    break
-                  default:
-                    setError('播放错误: ' + data.details)
-                    break
-                }
-              }
-            })
-
-            hls.on(Hls.Events.MANIFEST_PARSED, () => {
-              console.log('HLS manifest parsed successfully')
-              setIsHlsInitialized(true)
-              // 延迟播放，确保视频元素已准备好
-              setTimeout(() => {
-                video.play().catch(err => {
-                  console.error('Playback failed:', err)
-                  if (err.name === 'AbortError') {
-                    console.log('Playback aborted, retrying...')
-                    setTimeout(() => video.play(), 1000)
-                  } else {
-                    setError('播放失败: ' + err.message)
-                  }
-                })
-              }, 500)
-            })
-
-            console.log('Loading HLS source...')
-            hls.loadSource(videoUrl)
-            console.log('Attaching media element...')
-            hls.attachMedia(video)
-            console.log('HLS initialization completed')
-
-            // 添加视频元素事件监听
-            video.addEventListener('loadedmetadata', () => {
-              console.log('Video metadata loaded')
-            })
-            video.addEventListener('loadeddata', () => {
-              console.log('Video data loaded')
-            })
-            video.addEventListener('canplay', () => {
-              console.log('Video can play')
-            })
-            video.addEventListener('play', () => {
-              console.log('Video started playing')
-            })
-            video.addEventListener('error', (e) => {
-              console.error('Video element error:', e)
-            })
-            video.addEventListener('stalled', () => {
-              console.log('Video stalled, trying to recover...')
-              hls.startLoad()
-            })
-            video.addEventListener('waiting', () => {
-              console.log('Video waiting for data...')
-            })
-            video.addEventListener('playing', () => {
-              console.log('Video playing')
-            })
-            video.addEventListener('ended', () => {
-              console.log('Video ended')
-            })
-          } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-            console.log('Using native HLS support')
-            video.src = videoUrl
-            video.play().catch(err => {
-              console.error('Native HLS playback failed:', err)
-              setError('原生HLS播放失败: ' + err.message)
-            })
-            setIsHlsInitialized(true)
-          } else {
-            console.error('HLS not supported')
-            setError('您的浏览器不支持HLS播放')
-          }
-        } catch (err) {
-          console.error('Failed to load HLS:', err)
-          setError('无法加载视频: ' + (err instanceof Error ? err.message : String(err)))
-          setIsHlsInitialized(true)
-        }
+        const hls = await initializeHlsPlayer(video, videoUrl, setError, setIsHlsInitialized)
+        setHlsInstance(hls)
       }
 
       // 使用 setTimeout 确保 DOM 已经渲染
