@@ -291,16 +291,27 @@ const createHlsInstance = (setError: (error: string) => void) => {
               
               // 处理不同类型的加密内容
               if (context.frag) {
-                // 处理密钥文件
-                if (context.frag.encrypted) {
-                  context.responseType = 'arraybuffer'
-                  context.headers['Accept'] = 'application/octet-stream'
-                  console.log('Loading encrypted fragment:', {
+                // 处理 AES-128 加密
+                if (context.frag.encrypted && context.frag._decryptdata?.method === 'AES-128') {
+                  console.log('Processing AES-128 encrypted content:', {
                     url: originalUrl,
-                    type: context.frag.encrypted ? 'encrypted' : 'clear',
-                    keyFormat: context.frag.keyFormat,
-                    keyMethod: context.frag.keyMethod
+                    keyUri: context.frag._decryptdata.uri,
+                    iv: context.frag._decryptdata.iv
                   })
+                  
+                  // 如果是密钥文件请求
+                  if (context.frag._decryptdata.uri === originalUrl) {
+                    context.responseType = 'arraybuffer'
+                    context.headers['Accept'] = 'application/octet-stream'
+                    context.headers['Cache-Control'] = 'no-cache'
+                    context.headers['Pragma'] = 'no-cache'
+                    
+                    console.log('Loading AES-128 key file:', {
+                      url: originalUrl,
+                      method: context.frag._decryptdata.method,
+                      keyFormat: context.frag._decryptdata.keyFormat
+                    })
+                  }
                 }
                 
                 // 处理 DRM 内容
