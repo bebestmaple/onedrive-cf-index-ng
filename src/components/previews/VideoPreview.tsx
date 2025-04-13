@@ -156,40 +156,8 @@ const createHlsInstance = (setError: (error: string) => void) => {
     xhrSetup: (xhr, url) => {
       console.log('XHR Setup:', url)
       
-      // 检查是否是surrit.com的请求
-      if (url.includes('surrit.com')) {
-        // 使用代理API处理请求
-        const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
-        console.log('Using proxy URL:', proxyUrl)
-        xhr.open('GET', proxyUrl, true)
-        return
-      }
-
-      // 对于其他请求，添加CORS头
-      xhr.withCredentials = false
-      xhr.setRequestHeader('Access-Control-Allow-Origin', '*')
-      xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET')
-      xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type, Range')
-      xhr.setRequestHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
-      
-      xhr.onload = () => {
-        console.log('XHR Loaded:', url)
-        const corsHeader = xhr.getResponseHeader('Access-Control-Allow-Origin')
-        if (!corsHeader) {
-          console.warn('CORS header not found in response')
-        }
-      }
       xhr.onerror = (e) => {
         console.error('XHR Error:', url, e)
-        if (xhr.status === 0 && xhr.readyState === 4) {
-          console.error('Possible CORS error detected')
-          // 如果是CORS错误，尝试使用代理
-          const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
-          console.log('Retrying with proxy URL:', proxyUrl)
-          xhr.open('GET', proxyUrl, true)
-          xhr.send()
-          return
-        }
         // 增强重试机制
         if (xhr.status === 0 || xhr.status === 500 || xhr.status === 404) {
           console.log('Retrying XHR request...')
@@ -200,8 +168,7 @@ const createHlsInstance = (setError: (error: string) => void) => {
               retryCount++
               console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
               setTimeout(() => {
-                const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
-                xhr.open('GET', proxyUrl, true)
+                xhr.open('GET', url, true)
                 xhr.send()
               }, 1000 * retryCount)
             } else {
@@ -356,8 +323,6 @@ const VideoPlayer: FC<{
   const plyrOptions: Plyr.Options = {
     ratio: `${width ?? 16}:${height ?? 9}`,
     fullscreen: { iosNative: true },
-    controls: ['play', 'progress', 'current-time', 'mute', 'volume', 'fullscreen'],
-    blankVideo: ''
   }
   if (!isFlv && !isM3u8) {
     // If the video is not in flv or m3u8 format, we can use the native plyr and add sources directly with the video URL
