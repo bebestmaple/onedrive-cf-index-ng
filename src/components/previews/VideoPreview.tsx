@@ -155,19 +155,11 @@ const createHlsInstance = (setError: (error: string) => void) => {
     progressive: true,
     xhrSetup: (xhr, url) => {
       console.log('XHR Setup:', url)
-      // 添加CORS头
+      // 修改CORS配置
       xhr.withCredentials = false
-      xhr.setRequestHeader('Access-Control-Allow-Origin', '*')
-      xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET')
-      xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type, Range')
-      xhr.setRequestHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
-      
+      // 移除自定义CORS头，让浏览器自动处理
       xhr.onload = () => {
         console.log('XHR Loaded:', url)
-        const corsHeader = xhr.getResponseHeader('Access-Control-Allow-Origin')
-        if (!corsHeader) {
-          console.warn('CORS header not found in response')
-        }
       }
       xhr.onerror = (e) => {
         console.error('XHR Error:', url, e)
@@ -221,18 +213,16 @@ const initializeHlsPlayer = async (
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         console.log('HLS manifest parsed successfully')
         setIsHlsInitialized(true)
-        // 延迟播放，确保视频元素已准备好
-        setTimeout(() => {
-          video.play().catch(err => {
-            console.error('Playback failed:', err)
-            if (err.name === 'AbortError') {
-              console.log('Playback aborted, retrying...')
-              setTimeout(() => video.play(), 1000)
-            } else {
-              setError('播放失败: ' + err.message)
-            }
-          })
-        }, 500)
+        // 移除自动播放，让用户手动点击播放
+        video.play().catch(err => {
+          console.error('Playback failed:', err)
+          if (err.name === 'AbortError') {
+            console.log('Playback aborted, retrying...')
+            setTimeout(() => video.play(), 1000)
+          } else {
+            setError('播放失败: ' + err.message)
+          }
+        })
       })
 
       console.log('Loading HLS source...')
@@ -279,20 +269,24 @@ const VideoPlayer: FC<{
   const [hlsInstance, setHlsInstance] = useState<Hls | null>(null)
 
   useEffect(() => {
-    // Really really hacky way to inject subtitles as file blobs into the video element
-    axios
-      .get(subtitle, { responseType: 'blob' })
-      .then(resp => {
-        const track = document.querySelector('track')
-        track?.setAttribute('src', URL.createObjectURL(resp.data))
-      })
-      .catch(() => {
-        console.log('Could not load subtitle.')
-      })
+    // 修改字幕加载逻辑，添加错误处理
+    if (subtitle) {
+      axios
+        .get(subtitle, { responseType: 'blob' })
+        .then(resp => {
+          const track = document.querySelector('track')
+          if (track) {
+            track.setAttribute('src', URL.createObjectURL(resp.data))
+          }
+        })
+        .catch((err) => {
+          console.log('Could not load subtitle:', err)
+          // 不显示错误，因为字幕是可选的
+        })
+    }
 
     if (isFlv) {
       const loadFlv = () => {
-        // Really hacky way to get the exposed video element from Plyr
         const video = document.getElementById('plyr') as HTMLVideoElement | null
         if (video) {
           const flv = mpegts.createPlayer({ url: videoUrl, type: 'flv' })
