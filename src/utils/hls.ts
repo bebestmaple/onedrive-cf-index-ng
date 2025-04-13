@@ -60,7 +60,7 @@ export const createHlsInstance = (setError: (error: string) => void) => {
           
           const requiresProxy = needsProxy(url, currentOrigin)
           if (requiresProxy) {
-            const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+            const proxyUrl = `/api/proxy/${encodeURIComponent(url)}`
             
             const originalLoad = super.load.bind(this)
             this.load = (context: any, config: any, callbacks: any) => {

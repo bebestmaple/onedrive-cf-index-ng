@@ -15,8 +15,8 @@ const PDFEmbedPreview: React.FC<{ file: any }> = ({ file }) => {
 
   return (
     <div>
-      <div className="w-full overflow-hidden rounded" style={{ height: '90vh' }}>
-        <iframe src={url} frameBorder="0" width="100%" height="100%"></iframe>
+      <div className="overflow-hidden w-full rounded" style={{ height: '90vh' }}>
+        <iframe src={url} style={{ border: 'none' }} width="100%" height="100%"></iframe>
       </div>
       <DownloadBtnContainer>
         <DownloadButtonGroup />
