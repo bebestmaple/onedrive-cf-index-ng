@@ -1,5 +1,5 @@
 import type { OdFileObject } from '../../types'
-import type { LoaderConfig, LoaderContext, LoaderCallbacks } from 'hls.js'
+import type { LoaderConfig, LoaderContext, LoaderCallbacks, Fragment, DRMSystemOptions } from 'hls.js'
 
 import { FC, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
@@ -154,10 +154,35 @@ const createHlsInstance = (setError: (error: string) => void) => {
     abrMaxWithRealBitrate: true,
     testBandwidth: true,
     progressive: true,
+    // 添加完整的加密流支持
+    drmSystemOptions: {
+      // FairPlay Streaming
+      'com.apple.fps.1_0': {
+        licenseUrl: '',
+        certificateUrl: '',
+        processLicense: (licenseData: ArrayBuffer) => licenseData,
+        processCertificate: (certificateData: ArrayBuffer) => certificateData
+      },
+      // Widevine
+      'com.widevine.alpha': {
+        licenseUrl: '',
+        certificateUrl: '',
+        processLicense: (licenseData: ArrayBuffer) => licenseData,
+        processCertificate: (certificateData: ArrayBuffer) => certificateData
+      },
+      // PlayReady
+      'com.microsoft.playready': {
+        licenseUrl: '',
+        certificateUrl: '',
+        processLicense: (licenseData: ArrayBuffer) => licenseData,
+        processCertificate: (certificateData: ArrayBuffer) => certificateData
+      }
+    } as any,
+    // 修改加载器配置
     loader: class CustomLoader extends Hls.DefaultConfig.loader {
       constructor(config: any) {
         super(config)
-        this.load = (context: { url: string; responseType: string }, config: any, callbacks: any) => {
+        this.load = (context: any, config: any, callbacks: any) => {
           const url = context.url
           const currentOrigin = window.location.origin
           
@@ -237,7 +262,64 @@ const createHlsInstance = (setError: (error: string) => void) => {
               type: url.startsWith('//') ? 'protocol-relative' :
                     url.match(/^[a-z]+:\/\//i) ? 'absolute' : 'unknown'
             })
-            context.url = proxyUrl
+            
+            // 修改请求配置，确保正确处理加密视频流
+            const originalLoad = super.load.bind(this)
+            this.load = (context: any, config: any, callbacks: any) => {
+              // 保存原始 URL 和响应类型
+              const originalUrl = context.url
+              const originalResponseType = context.responseType
+              
+              // 设置代理 URL
+              context.url = proxyUrl
+              
+              // 确保响应类型正确
+              context.responseType = originalResponseType
+              
+              // 添加必要的头部
+              if (!context.headers) {
+                context.headers = {}
+              }
+              
+              // 添加原始 URL 作为头部，以便代理服务器知道原始请求
+              context.headers['X-Original-URL'] = originalUrl
+              
+              // 添加 CORS 相关头部
+              context.headers['Access-Control-Allow-Origin'] = '*'
+              context.headers['Access-Control-Allow-Methods'] = 'GET, HEAD, OPTIONS'
+              context.headers['Access-Control-Allow-Headers'] = 'Origin, Content-Type, Accept, Range'
+              
+              // 处理不同类型的加密内容
+              if (context.frag) {
+                // 处理密钥文件
+                if (context.frag.encrypted) {
+                  context.responseType = 'arraybuffer'
+                  context.headers['Accept'] = 'application/octet-stream'
+                  console.log('Loading encrypted fragment:', {
+                    url: originalUrl,
+                    type: context.frag.encrypted ? 'encrypted' : 'clear',
+                    keyFormat: context.frag.keyFormat,
+                    keyMethod: context.frag.keyMethod
+                  })
+                }
+                
+                // 处理 DRM 内容
+                if (context.frag.drm) {
+                  context.responseType = 'arraybuffer'
+                  context.headers['Accept'] = 'application/octet-stream'
+                  console.log('Loading DRM content:', {
+                    url: originalUrl,
+                    drmSystem: context.frag.drm.system,
+                    drmMethod: context.frag.drm.method
+                  })
+                }
+              }
+              
+              // 调用原始加载方法
+              return originalLoad(context, config, callbacks)
+            }
+            
+            return this.load(context, config, callbacks)
           }
           
           return super.load(context, config, callbacks)
