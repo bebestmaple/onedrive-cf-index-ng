@@ -256,6 +256,7 @@ export const createHlsInstance = (setError: (error: string) => void) => {
 
                     // 确保解密数据在密钥加载后保持不变
                     const originalDecryptData = { ...context.frag._decryptdata }
+                    const onSuccessCallback = callbacks.onSuccess
                     callbacks.onSuccess = (response: any, stats: any, context: any, networkDetails: any) => {
                       console.log('Key loaded successfully:', {
                         url: originalUrl,
@@ -276,8 +277,9 @@ export const createHlsInstance = (setError: (error: string) => void) => {
                       // 恢复原始解密数据
                       context.frag._decryptdata = originalDecryptData
                       
-                      if (callbacks.onSuccess) {
-                        callbacks.onSuccess(response, stats, context, networkDetails)
+                      // 调用原始回调
+                      if (onSuccessCallback) {
+                        onSuccessCallback(response, stats, context, networkDetails)
                       }
                     }
                     
