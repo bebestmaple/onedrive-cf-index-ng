@@ -22,7 +22,6 @@ export default async function handler(req: NextRequest) {
   try {
     // 解码 URL 参数
     const decodedUrl = decodeURIComponent(url)
-    console.log('Proxying request to:', decodedUrl)
 
     // 获取原始请求的头部
     const originalHeaders: Record<string, string> = {}
@@ -39,11 +38,6 @@ export default async function handler(req: NextRequest) {
     })
 
     if (!response.ok) {
-      console.error('Proxy request failed:', {
-        status: response.status,
-        statusText: response.statusText,
-        url: decodedUrl
-      })
       throw new Error(`Failed to fetch: ${response.statusText}`)
     }
 
@@ -69,11 +63,6 @@ export default async function handler(req: NextRequest) {
       headers
     })
   } catch (error) {
-    console.error('Proxy error:', {
-      error,
-      url,
-      timestamp: new Date().toISOString()
-    })
     return new Response(JSON.stringify({ 
       error: 'Failed to proxy request',
       details: error instanceof Error ? error.message : String(error)
