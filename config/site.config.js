@@ -58,9 +58,9 @@ module.exports = {
 
   // 代理配置
   proxy: {
-    // 是否启用安全代理，优先从环境变量获取
-    enableSafeProxy: process.env.ENABLE_SAFE_PROXY === 'true' || false,
-    // 安全代理路径，优先从环境变量获取
-    safeProxyPath: process.env.SAFE_PROXY_PATH || 'AvcrMm1nHnpoYimC8e',
+    // 是否启用安全代理
+    enableSafeProxy: true,
+    // 安全代理路径
+    safeProxyPath: 'AvcrMm1nHnpoYimC8e',
   },
 }
