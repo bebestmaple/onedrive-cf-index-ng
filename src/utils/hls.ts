@@ -1,5 +1,6 @@
 import Hls, { ErrorData, HlsConfig as HlsJsConfig } from 'hls.js'
 import { needsProxy } from './url'
+import siteConfig from '../../config/site.config.js'
 
 interface CustomHlsConfig extends HlsJsConfig {
   loader: any
@@ -60,7 +61,19 @@ export const createHlsInstance = (setError: (error: string) => void) => {
           
           const requiresProxy = needsProxy(url, currentOrigin)
           if (requiresProxy) {
-            const proxyUrl = `/api/proxy/${encodeURIComponent(url)}`
+            const enableSafeProxy = siteConfig.proxy.enableSafeProxy
+            let proxyUrl: string
+            
+            if (enableSafeProxy) {
+              const safePath = siteConfig.proxy.safeProxyPath
+              if (!safePath) {
+                console.error('safeProxyPath is required when enableSafeProxy is true')
+                return super.load(context, config, callbacks)
+              }
+              proxyUrl = `/api/proxy/${safePath}/${encodeURIComponent(url)}`
+            } else {
+              proxyUrl = `/api/proxy/${encodeURIComponent(url)}`
+            }
             
             const originalLoad = super.load.bind(this)
             this.load = (context: any, config: any, callbacks: any) => {

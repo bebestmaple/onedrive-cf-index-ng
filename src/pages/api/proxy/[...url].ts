@@ -1,14 +1,15 @@
 import { NextRequest } from 'next/server'
+import siteConfig from '../../../../config/site.config.js'
 
 export const config = {
   runtime: 'edge'
 }
 
 export default async function handler(req: NextRequest) {
-  // 从path中获取URL
-  const url = req.nextUrl.pathname.replace('/api/proxy/', '')
+  // 从path中获取完整路径
+  const fullPath = req.nextUrl.pathname.replace('/api/proxy/', '')
   
-  if (!url) {
+  if (!fullPath) {
     return new Response(JSON.stringify({ error: 'URL is required' }), {
       status: 400,
       headers: {
@@ -21,6 +22,41 @@ export default async function handler(req: NextRequest) {
   }
 
   try {
+    // 检查是否启用安全代理
+    const enableSafeProxy = siteConfig.proxy.enableSafeProxy
+    let url: string
+
+    if (enableSafeProxy) {
+      // 获取安全路径
+      const safePath = siteConfig.proxy.safeProxyPath
+      if (!safePath) {
+        return new Response(JSON.stringify({ error: 'safeProxyPath is required when enableSafeProxy is true' }), {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          }
+        })
+      }
+
+      // 验证路径前缀
+      if (!fullPath.startsWith(safePath)) {
+        return new Response(JSON.stringify({ error: 'Invalid proxy path' }), {
+          status: 403,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+          }
+        })
+      }
+
+      // 提取实际的URL
+      url = fullPath.slice(safePath.length + 1) // +1 是为了去掉路径分隔符
+    } else {
+      // 未启用安全代理，直接使用完整路径作为URL
+      url = fullPath
+    }
+
     // 解码 URL
     const decodedUrl = decodeURIComponent(url)
 
