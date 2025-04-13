@@ -48,7 +48,11 @@ export const setupHlsEventListeners = (hls: Hls, setError: (error: string) => vo
     console.error('[HLS Error]', {
       event,
       data,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      frag: data.frag,
+      response: data.response,
+      context: data.context,
+      networkDetails: data.networkDetails
     })
     if (data.fatal) {
       switch (data.type) {
@@ -58,6 +62,11 @@ export const setupHlsEventListeners = (hls: Hls, setError: (error: string) => vo
             setError('跨域访问被阻止，请检查服务器CORS配置')
             return
           }
+          console.error('Network error details:', {
+            url: data.context?.url,
+            response: data.response,
+            networkDetails: data.networkDetails
+          })
           setError('网络错误，无法加载视频流，正在重试...')
           let retryCount = 0
           const maxRetries = 3
@@ -75,6 +84,11 @@ export const setupHlsEventListeners = (hls: Hls, setError: (error: string) => vo
           retry()
           break
         case Hls.ErrorTypes.MEDIA_ERROR:
+          console.error('Media error details:', {
+            error: data.error,
+            context: data.context,
+            frag: data.frag
+          })
           setError('媒体错误，视频格式可能不正确，正在尝试恢复...')
           hls.recoverMediaError()
           break
@@ -262,20 +276,6 @@ export const createHlsInstance = (setError: (error: string) => void) => {
                       // 恢复原始解密数据
                       context.frag._decryptdata = originalDecryptData
                       
-                      // 添加解密完成事件监听
-                      if (this.hlsInstance) {
-                        this.hlsInstance.on(Hls.Events.FRAG_DECRYPTED, (event, data) => {
-                          console.log('Fragment decrypted:', {
-                            frag: data.frag,
-                            decryptdata: {
-                              method: data.frag.encrypted ? (data.frag.encrypted as any).method : undefined,
-                              uri: data.frag.encrypted ? (data.frag.encrypted as any).uri : undefined,
-                              iv: data.frag.encrypted ? (data.frag.encrypted as any).iv : undefined
-                            }
-                          })
-                        })
-                      }
-                      
                       if (callbacks.onSuccess) {
                         callbacks.onSuccess(response, stats, context, networkDetails)
                       }
@@ -353,16 +353,25 @@ export const initializeHlsPlayer = async (
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         console.log('HLS manifest parsed successfully')
         setIsHlsInitialized(true)
-        // 移除自动播放，让用户手动点击播放
-        video.play().catch(err => {
-          console.error('Playback failed:', err)
-          if (err.name === 'AbortError') {
-            console.log('Playback aborted, retrying...')
-            setTimeout(() => video.play(), 1000)
-          } else {
-            setError(`播放失败: ${err.message}`)
-          }
-        })
+        // 等待视频元素准备好后再尝试播放
+        if (video.readyState >= 2) {
+          video.play().catch(err => {
+            console.error('Playback failed:', err)
+            if (err.name === 'AbortError') {
+              console.log('Playback aborted, retrying...')
+              setTimeout(() => video.play(), 1000)
+            } else {
+              setError(`播放失败: ${err.message}`)
+            }
+          })
+        } else {
+          video.addEventListener('canplay', () => {
+            video.play().catch(err => {
+              console.error('Playback failed:', err)
+              setError(`播放失败: ${err.message}`)
+            })
+          }, { once: true })
+        }
       })
 
       console.log('Loading HLS source...')
