@@ -1,4 +1,5 @@
 import type { OdFileObject } from '../../types'
+import type { LoaderConfig, LoaderContext, LoaderCallbacks } from 'hls.js'
 
 import { FC, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
@@ -153,28 +154,22 @@ const createHlsInstance = (setError: (error: string) => void) => {
     abrMaxWithRealBitrate: true,
     testBandwidth: true,
     progressive: true,
-    xhrSetup: (xhr, url) => {
-      console.log('XHR Setup:', url)
-      xhr.withCredentials = false
-      
-      // 检查是否是跨域请求
-      const currentOrigin = window.location.origin
-      const isCrossOrigin = !url.startsWith(currentOrigin)
-      
-      if (isCrossOrigin) {
-        const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
-        xhr.open('GET', proxyUrl, true)
-        return
+    loader: class CustomLoader extends Hls.DefaultConfig.loader {
+      constructor(config: any) {
+        super(config)
+        this.load = (context: { url: string; responseType: string }, config: any, callbacks: any) => {
+          const currentOrigin = window.location.origin
+          const isCrossOrigin = !context.url.startsWith(currentOrigin)
+          
+          if (isCrossOrigin) {
+            const proxyUrl = `/api/proxy?url=${encodeURIComponent(context.url)}`
+            console.log('Using proxy for cross-origin request:', proxyUrl)
+            context.url = proxyUrl
+          }
+          
+          return super.load(context, config, callbacks)
+        }
       }
-      
-      xhr.onload = () => {
-        console.log('XHR Loaded:', url)
-      }
-      xhr.onerror = (e) => {
-        console.error('XHR Error:', url, e)
-        setError('无法加载视频流，请检查网络连接或视频地址是否正确')
-      }
-      xhr.onprogress = (e) => console.log('XHR Progress:', url, e)
     }
   })
 }
