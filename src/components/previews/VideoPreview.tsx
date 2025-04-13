@@ -155,7 +155,20 @@ const createHlsInstance = (setError: (error: string) => void) => {
     progressive: true,
     xhrSetup: (xhr, url) => {
       console.log('XHR Setup:', url)
+      // 添加CORS头
+      xhr.withCredentials = false
+      xhr.setRequestHeader('Access-Control-Allow-Origin', '*')
+      xhr.setRequestHeader('Access-Control-Allow-Methods', 'GET')
+      xhr.setRequestHeader('Access-Control-Allow-Headers', 'Content-Type, Range')
+      xhr.setRequestHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
       
+      xhr.onload = () => {
+        console.log('XHR Loaded:', url)
+        const corsHeader = xhr.getResponseHeader('Access-Control-Allow-Origin')
+        if (!corsHeader) {
+          console.warn('CORS header not found in response')
+        }
+      }
       xhr.onerror = (e) => {
         console.error('XHR Error:', url, e)
         // 增强重试机制
