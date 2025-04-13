@@ -14,7 +14,7 @@ import Hls from 'hls.js'
 import { getBaseUrl } from '../../utils/getBaseUrl'
 import { getExtension } from '../../utils/getFileIcon'
 import { getStoredToken } from '../../utils/protectedRouteHandler'
-import { setupHlsEventListeners, setupVideoEventListeners, createHlsInstance, initializeHlsPlayer } from '../../utils/hls'
+import { initializeHlsPlayer } from '../../utils/hls'
 
 import { DownloadButton } from '../DownloadBtnGtoup'
 import { DownloadBtnContainer, PreviewContainer } from './Containers'
