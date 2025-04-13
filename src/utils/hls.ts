@@ -268,10 +268,16 @@ export const createHlsInstance = (setError: (error: string) => void) => {
                       
                       // 检查密钥数据
                       if (response.data) {
+                        const keyData = new Uint8Array(response.data)
                         console.log('Key data:', {
-                          length: response.data.byteLength,
-                          firstBytes: new Uint8Array(response.data.slice(0, 16))
+                          length: keyData.length,
+                          firstBytes: keyData.slice(0, 16)
                         })
+                        
+                        // 确保密钥数据被正确设置
+                        if (context.frag._decryptdata) {
+                          context.frag._decryptdata.key = keyData
+                        }
                       }
                       
                       // 恢复原始解密数据
