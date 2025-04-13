@@ -52,7 +52,7 @@ const setupHlsEventListeners = (hls: Hls, setError: (error: string) => void) => 
   ]
 
   events.forEach(event => {
-    hls.on(event, (eventType, data) => {
+    hls.on(event, (eventType: string, data: any) => {
       console.log(`[HLS Event] ${event}:`, {
         eventType,
         data,
@@ -155,34 +155,24 @@ const createHlsInstance = (setError: (error: string) => void) => {
     progressive: true,
     xhrSetup: (xhr, url) => {
       console.log('XHR Setup:', url)
-      // 修改CORS配置
       xhr.withCredentials = false
-      // 移除自定义CORS头，让浏览器自动处理
+      
+      // 检查是否是跨域请求
+      const currentOrigin = window.location.origin
+      const isCrossOrigin = !url.startsWith(currentOrigin)
+      
+      if (isCrossOrigin) {
+        const proxyUrl = `/api/proxy?url=${encodeURIComponent(url)}`
+        xhr.open('GET', proxyUrl, true)
+        return
+      }
+      
       xhr.onload = () => {
         console.log('XHR Loaded:', url)
       }
       xhr.onerror = (e) => {
         console.error('XHR Error:', url, e)
-        // 增强重试机制
-        if (xhr.status === 0 || xhr.status === 500 || xhr.status === 404) {
-          console.log('Retrying XHR request...')
-          let retryCount = 0
-          const maxRetries = 3
-          const retry = () => {
-            if (retryCount < maxRetries) {
-              retryCount++
-              console.log(`Retry attempt ${retryCount} of ${maxRetries}`)
-              setTimeout(() => {
-                xhr.open('GET', url, true)
-                xhr.send()
-              }, 1000 * retryCount)
-            } else {
-              console.error('Max retries reached')
-              setError('无法加载视频流，请检查网络连接或视频地址是否正确')
-            }
-          }
-          retry()
-        }
+        setError('无法加载视频流，请检查网络连接或视频地址是否正确')
       }
       xhr.onprogress = (e) => console.log('XHR Progress:', url, e)
     }
