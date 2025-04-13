@@ -170,8 +170,11 @@ export const createHlsInstance = (setError: (error: string) => void) => {
     } as any,
     // 修改加载器配置
     loader: class CustomLoader extends Hls.DefaultConfig.loader {
+      private hlsInstance: Hls | null = null
+
       constructor(config: any) {
         super(config)
+        this.hlsInstance = config.hls
         this.load = (context: any, config: any, callbacks: any) => {
           const url = context.url
           const currentOrigin = window.location.origin
@@ -244,12 +247,50 @@ export const createHlsInstance = (setError: (error: string) => void) => {
                         url: originalUrl,
                         response,
                         stats,
-                        originalDecryptData
+                        originalDecryptData,
+                        currentDecryptData: context.frag._decryptdata
                       })
+                      
+                      // 检查密钥数据
+                      if (response.data) {
+                        console.log('Key data:', {
+                          length: response.data.byteLength,
+                          firstBytes: new Uint8Array(response.data.slice(0, 16))
+                        })
+                      }
+                      
                       // 恢复原始解密数据
                       context.frag._decryptdata = originalDecryptData
+                      
+                      // 添加解密完成事件监听
+                      if (this.hlsInstance) {
+                        this.hlsInstance.on(Hls.Events.FRAG_DECRYPTED, (event, data) => {
+                          console.log('Fragment decrypted:', {
+                            frag: data.frag,
+                            decryptdata: {
+                              method: data.frag.encrypted ? (data.frag.encrypted as any).method : undefined,
+                              uri: data.frag.encrypted ? (data.frag.encrypted as any).uri : undefined,
+                              iv: data.frag.encrypted ? (data.frag.encrypted as any).iv : undefined
+                            }
+                          })
+                        })
+                      }
+                      
                       if (callbacks.onSuccess) {
                         callbacks.onSuccess(response, stats, context, networkDetails)
+                      }
+                    }
+                    
+                    // 添加密钥加载错误处理
+                    callbacks.onError = (error: any, context: any, networkDetails: any) => {
+                      console.error('Key loading failed:', {
+                        error,
+                        context,
+                        networkDetails,
+                        url: originalUrl
+                      })
+                      if (callbacks.onError) {
+                        callbacks.onError(error, context, networkDetails)
                       }
                     }
                   }
