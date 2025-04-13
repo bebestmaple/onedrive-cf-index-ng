@@ -1,5 +1,4 @@
 import type { OdFileObject } from '../../types'
-import type { LoaderConfig, LoaderContext, LoaderCallbacks, Fragment, DRMSystemOptions } from 'hls.js'
 
 import { FC, useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
@@ -51,8 +50,7 @@ const VideoPlayer: FC<{
             track.setAttribute('src', URL.createObjectURL(resp.data))
           }
         })
-        .catch((err) => {
-          console.log('Could not load subtitle:', err)
+        .catch(() => {
           // 不显示错误，因为字幕是可选的
         })
     }
@@ -71,7 +69,6 @@ const VideoPlayer: FC<{
       const loadHls = async () => {
         const video = document.getElementById('plyr') as HTMLVideoElement | null
         if (!video) {
-          console.error('Video element not found')
           return
         }
 
@@ -86,7 +83,6 @@ const VideoPlayer: FC<{
   useEffect(() => {
     return () => {
       if (hlsInstance) {
-        console.log('Destroying HLS instance')
         hlsInstance.destroy()
       }
     }
@@ -220,7 +216,6 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
       const loadHls = async () => {
         const video = document.getElementById('plyr') as HTMLVideoElement | null
         if (!video) {
-          console.error('Video element not found')
           return
         }
 
@@ -237,7 +232,6 @@ const VideoPreview: FC<{ file: OdFileObject }> = ({ file }) => {
   useEffect(() => {
     return () => {
       if (hlsInstance) {
-        console.log('Destroying HLS instance')
         hlsInstance.destroy()
       }
     }
